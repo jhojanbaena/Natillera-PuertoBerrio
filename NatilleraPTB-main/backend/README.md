@@ -73,7 +73,7 @@ docker compose -f ../compose.yaml --env-file .env up -d --wait db
 
 `setup_local.py` genera `.env` desde `.env.example`, con clave JWT y contraseña
 PostgreSQL aleatorias. Conserva cualquier `.env` existente; si está incompleto,
-rellena `DATABASE_URL`, `SECRET_KEY` y las variables `POSTGRES_*` usando la plantilla.
+completa manualmente `DATABASE_URL`, `SECRET_KEY` y las variables `POSTGRES_*` usando la plantilla.
 El archivo contiene credenciales locales y está excluido de Git. No publiques su contenido.
 
 Compose ejecuta PostgreSQL 17, con healthcheck y volumen persistente. El servicio
@@ -107,11 +107,42 @@ python migrate_sqlite_to_postgres.py
 
 El script verifica las tablas y columnas, copia los registros respetando las relaciones, reajusta las secuencias y conserva el archivo SQLite original como respaldo. No ejecutes `seed.py` si ya migraste datos.
 
-### 6. Semillero de Datos (Opcional)
+### 6. Preparar las tablas y crear el usuario
+
+Con PostgreSQL iniciado, ejecuta primero la migración:
+
+```bash
+python manage_db.py upgrade
+python create_admin.py
+```
+
+El nombre correcto es `create_admin.py`. El usuario debe tener entre 3 y 50
+caracteres; la contraseña, al menos 12 caracteres y como máximo 72 bytes UTF-8.
+Al escribir la contraseña en la terminal no se muestran caracteres. Si ya existe
+un administrador, el script se detiene; administra los usuarios desde la aplicación.
+
+Para una base **local nueva de demostración**, puedes ejecutar `python seed.py`
+en lugar de `python create_admin.py`, después de la migración.
 Para inicializar la base de datos con datos de prueba (usuario admin `admin / 12345678`, socios, préstamos, etc.):
 ```bash
 python seed.py
 ```
+
+Los scripts verifican las tablas y columnas antes de guardar datos. Si falta el
+esquema, indican que ejecutes `python manage_db.py upgrade`. El semillero guarda
+todos los datos en una sola transacción: un fallo revierte toda esa ejecución.
+Sigue bloqueado en producción y en servidores remotos.
+
+Si el cliente recibe errores al ejecutar los scripts:
+
+- `No such file` o `can't open file`: abre una terminal en `backend` y comprueba el nombre `create_admin.py`.
+- Dependencia ausente: activa el entorno virtual del equipo del cliente y ejecuta `python -m pip install -r requirements.txt`.
+- Configuración inválida: para una instalación local nueva ejecuta `python setup_local.py`; si `.env` ya existe, revisa sus valores manualmente.
+- Error de PostgreSQL: comprueba que esté iniciado y que `DATABASE_URL` corresponda a sus credenciales; ejecuta la migración antes de crear usuarios o datos.
+
+Al compartir el proyecto, excluye `.venv`, `node_modules`, `.env` y cachés. El
+cliente debe crear su propio entorno virtual y su propia configuración; un
+`.venv` copiado contiene rutas y ejecutables del sistema donde se creó.
 
 ### 7. Iniciar el servidor de desarrollo
 ```bash
