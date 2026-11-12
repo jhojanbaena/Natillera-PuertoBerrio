@@ -49,7 +49,7 @@ def test_prestamo_atrasado_entra_y_sale_de_mora(client, socio):
     hoy = hoy_colombia()
     inicio = sumar_meses(hoy, -2) - timedelta(days=DIAS_GRACIA_MORA + 5)
     response = client.post(f"{API}/prestamos", json={
-        "socio_id": socio["id"], "monto_prestado": "600", "tasa_interes": "0",
+        "regla_interes": "FIJA", "socio_id": socio["id"], "monto_prestado": "600", "tasa_interes": "0",
         "numero_cuotas": 6, "fecha_prestamo": inicio.isoformat(),
     })
     assert response.status_code == 201, response.text
@@ -73,7 +73,7 @@ def test_prestamo_atrasado_entra_y_sale_de_mora(client, socio):
 
 def test_prestamo_nuevo_no_esta_en_mora(client, socio):
     response = client.post(f"{API}/prestamos", json={
-        "socio_id": socio["id"], "monto_prestado": "100", "numero_cuotas": 3,
+        "regla_interes": "FIJA", "socio_id": socio["id"], "monto_prestado": "100", "numero_cuotas": 3,
     })
     assert response.json()["estado"] == "PENDIENTE"
     assert client.get(f"{API}/dashboard").json()["total_prestamos_en_mora"] == 0
@@ -154,7 +154,7 @@ def test_liquidacion_descuenta_deuda_al_cierre(client, socio):
     movement(client, socio["id"], "APORTE", 1000)
     movement(client, socio["id"], "MULTA", 30)
     assert client.post(f"{API}/prestamos", json={
-        "socio_id": socio["id"], "monto_prestado": "400", "tasa_interes": "5", "numero_cuotas": 2,
+        "regla_interes": "FIJA", "socio_id": socio["id"], "monto_prestado": "400", "tasa_interes": "5", "numero_cuotas": 2,
     }).status_code == 201
     item = client.get(f"{API}/finanzas/liquidacion-anual").json()["socios_liquidados"][0]
     assert Decimal(item["deuda_prestamos"]) == 440

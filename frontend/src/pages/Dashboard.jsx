@@ -17,6 +17,7 @@ import {
 import api from "../api/client";
 import { MetricCard } from "../components/MetricCard";
 import { Modal } from "../components/Modal";
+import { MoneyInput } from "../components/MoneyInput";
 import { RichTextDisplay, RichTextField } from "../components/RichTextField";
 import { formatMoney, formatDate } from "../utils/formatters";
 
@@ -544,8 +545,8 @@ export const Dashboard = () => {
               <input required value={createEventForm.grupo_encargado} onChange={(e) => setCreateEventForm({ ...createEventForm, grupo_encargado: e.target.value })} placeholder="Grupo encargado" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
               <input required type="date" value={createEventForm.fecha} onChange={(e) => setCreateEventForm({ ...createEventForm, fecha: e.target.value })} className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
               <div className="grid grid-cols-2 gap-3">
-                <input type="number" step="0.01" min="0" value={createEventForm.inversion} onChange={(e) => setCreateEventForm({ ...createEventForm, inversion: e.target.value })} placeholder="Inversión" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
-                <input type="number" step="0.01" min="0" value={createEventForm.ingresos_brutos} onChange={(e) => setCreateEventForm({ ...createEventForm, ingresos_brutos: e.target.value })} placeholder="Ingresos" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+                <MoneyInput value={createEventForm.inversion} onChange={(e) => setCreateEventForm({ ...createEventForm, inversion: e.target.value })} placeholder="Inversión" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+                <MoneyInput value={createEventForm.ingresos_brutos} onChange={(e) => setCreateEventForm({ ...createEventForm, ingresos_brutos: e.target.value })} placeholder="Ingresos" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
               </div>
               <RichTextField value={createEventForm.descripcion || ""} onChange={(value) => setCreateEventForm({ ...createEventForm, descripcion: value })} placeholder="Descripción" rows={3} />
             </>
@@ -561,8 +562,8 @@ export const Dashboard = () => {
               </select>
               <input required type="date" value={createEventForm.fecha} onChange={(e) => setCreateEventForm({ ...createEventForm, fecha: e.target.value })} className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
               <div className="grid grid-cols-2 gap-3">
-                <input type="number" step="0.01" min="0" value={createEventForm.inversion_premios} onChange={(e) => setCreateEventForm({ ...createEventForm, inversion_premios: e.target.value })} placeholder="Premios" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
-                <input type="number" step="0.01" min="0" value={createEventForm.valor_boleta} onChange={(e) => setCreateEventForm({ ...createEventForm, valor_boleta: e.target.value })} placeholder="Valor boleta" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+                <MoneyInput value={createEventForm.inversion_premios} onChange={(e) => setCreateEventForm({ ...createEventForm, inversion_premios: e.target.value })} placeholder="Premios" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+                <MoneyInput value={createEventForm.valor_boleta} onChange={(e) => setCreateEventForm({ ...createEventForm, valor_boleta: e.target.value })} placeholder="Valor boleta" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <input required type="number" min="1" step="1" value={createEventForm.total_boletas} onChange={(e) => setCreateEventForm({ ...createEventForm, total_boletas: e.target.value })} placeholder="Total boletas" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
@@ -580,7 +581,7 @@ export const Dashboard = () => {
               <input required minLength={2} value={createEventForm.lugar} onChange={(e) => setCreateEventForm({ ...createEventForm, lugar: e.target.value })} placeholder="Lugar" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
               <input required minLength={2} value={createEventForm.tema} onChange={(e) => setCreateEventForm({ ...createEventForm, tema: e.target.value })} placeholder="Tema" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
               <RichTextField value={createEventForm.compromisos} onChange={(value) => setCreateEventForm({ ...createEventForm, compromisos: value })} placeholder="Compromisos" rows={3} />
-              <input type="number" step="0.01" min="0" value={createEventForm.ganancias_reunion} onChange={(e) => setCreateEventForm({ ...createEventForm, ganancias_reunion: e.target.value })} placeholder="Fondo recaudado" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
+              <MoneyInput value={createEventForm.ganancias_reunion} onChange={(e) => setCreateEventForm({ ...createEventForm, ganancias_reunion: e.target.value })} placeholder="Fondo recaudado" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" />
             </>
           )}
 
@@ -676,8 +677,8 @@ export const Dashboard = () => {
                 <input className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" required value={eventForm.grupo_encargado || ""} onChange={(e) => setEventForm({ ...eventForm, grupo_encargado: e.target.value })} placeholder="Grupo encargado" />
                 <input type="date" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" required value={eventForm.fecha || ""} onChange={(e) => setEventForm({ ...eventForm, fecha: e.target.value })} />
                 <div className="grid grid-cols-2 gap-3">
-                  <input type="number" step="0.01" min="0" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.inversion ?? ""} onChange={(e) => setEventForm({ ...eventForm, inversion: e.target.value })} placeholder="Inversión" />
-                  <input type="number" step="0.01" min="0" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.ingresos_brutos ?? ""} onChange={(e) => setEventForm({ ...eventForm, ingresos_brutos: e.target.value })} placeholder="Ingresos" />
+                  <MoneyInput className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.inversion ?? ""} onChange={(e) => setEventForm({ ...eventForm, inversion: e.target.value })} placeholder="Inversión" />
+                  <MoneyInput className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.ingresos_brutos ?? ""} onChange={(e) => setEventForm({ ...eventForm, ingresos_brutos: e.target.value })} placeholder="Ingresos" />
                 </div>
                 <RichTextField value={eventForm.descripcion || ""} onChange={(value) => setEventForm({ ...eventForm, descripcion: value })} placeholder="Descripción" rows={3} />
               </>
@@ -687,8 +688,8 @@ export const Dashboard = () => {
                 <input className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" required value={eventForm.nombre || ""} onChange={(e) => setEventForm({ ...eventForm, nombre: e.target.value })} placeholder="Nombre de la rifa" />
                 <input type="date" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" required value={eventForm.fecha || ""} onChange={(e) => setEventForm({ ...eventForm, fecha: e.target.value })} />
                 <div className="grid grid-cols-2 gap-3">
-                  <input type="number" step="0.01" min="0" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.inversion_premios ?? ""} onChange={(e) => setEventForm({ ...eventForm, inversion_premios: e.target.value })} placeholder="Premios" />
-                  <input type="number" step="0.01" min="0" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.valor_boleta ?? ""} onChange={(e) => setEventForm({ ...eventForm, valor_boleta: e.target.value })} placeholder="Valor boleta" />
+                  <MoneyInput className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.inversion_premios ?? ""} onChange={(e) => setEventForm({ ...eventForm, inversion_premios: e.target.value })} placeholder="Premios" />
+                  <MoneyInput className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.valor_boleta ?? ""} onChange={(e) => setEventForm({ ...eventForm, valor_boleta: e.target.value })} placeholder="Valor boleta" />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <input type="number" min="0" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.total_boletas ?? ""} onChange={(e) => setEventForm({ ...eventForm, total_boletas: e.target.value })} placeholder="Total boletas" />
@@ -704,7 +705,7 @@ export const Dashboard = () => {
                 <input className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" required value={eventForm.lugar || ""} onChange={(e) => setEventForm({ ...eventForm, lugar: e.target.value })} placeholder="Lugar" />
                 <input className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" required value={eventForm.tema || ""} onChange={(e) => setEventForm({ ...eventForm, tema: e.target.value })} placeholder="Tema" />
                 <RichTextField value={eventForm.compromisos || ""} onChange={(value) => setEventForm({ ...eventForm, compromisos: value })} placeholder="Compromisos" rows={3} />
-                <input type="number" step="0.01" min="0" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.ganancias_reunion ?? ""} onChange={(e) => setEventForm({ ...eventForm, ganancias_reunion: e.target.value })} placeholder="Ganancias" />
+                <MoneyInput className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-sm" value={eventForm.ganancias_reunion ?? ""} onChange={(e) => setEventForm({ ...eventForm, ganancias_reunion: e.target.value })} placeholder="Ganancias" />
               </>
             )}
             {editingEvent.tipo_evento === "Nota" && (

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
+import { PeriodoProvider, usePeriodo } from "./context/PeriodoContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Sidebar } from "./components/Sidebar";
 import { Navbar } from "./components/Navbar";
@@ -12,6 +13,10 @@ import { ActividadesRifas } from "./pages/ActividadesRifas";
 import { Liquidacion } from "./pages/Liquidacion";
 import { Historial } from "./pages/Historial";
 import { BienComun } from "./pages/BienComun";
+import { GastosGenerales } from "./pages/GastosGenerales";
+import { Contabilidad } from "./pages/Contabilidad";
+import { Anios } from "./pages/Anios";
+import { Lock } from "lucide-react";
 
 const pageTitles = {
   "/": "Dashboard — Lobby Financiero",
@@ -21,12 +26,24 @@ const pageTitles = {
   "/liquidacion": "Liquidación Anual y Utilidades",
   "/historial": "Historial Global de Movimientos",
   "/bien-comun": "Bien Común",
+  "/gastos-generales": "Gastos Generales",
+  "/contabilidad": "Contabilidad",
+  "/anios": "Años de la Natillera",
 };
 
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const path = window.location.pathname;
   const title = pageTitles[path] || "Sistema Natillera";
+  const { periodo, listo, volverAlActivo } = usePeriodo();
+
+  if (!listo) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-50">
@@ -37,6 +54,22 @@ const Layout = ({ children }) => {
           title={title}
         />
         <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+          {periodo?.solo_lectura && (
+            <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900">
+              <p className="flex items-start gap-2 text-sm font-medium">
+                <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  Estás consultando el año <strong>{periodo.anio_consultado}</strong>. Es de solo consulta: no se pueden registrar ni modificar datos.
+                </span>
+              </p>
+              <button
+                onClick={volverAlActivo}
+                className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 transition-colors"
+              >
+                Volver al año activo {periodo.anio_activo}
+              </button>
+            </div>
+          )}
           {children}
         </main>
         <footer className="text-center py-4 text-[11px] text-slate-400 border-t border-slate-200/80">
@@ -51,6 +84,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <PeriodoProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route
@@ -109,8 +143,33 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/gastos-generales"
+            element={
+              <ProtectedRoute>
+                <Layout><GastosGenerales /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/contabilidad"
+            element={
+              <ProtectedRoute>
+                <Layout><Contabilidad /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/anios"
+            element={
+              <ProtectedRoute>
+                <Layout><Anios /></Layout>
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </PeriodoProvider>
       </AuthProvider>
     </BrowserRouter>
   );

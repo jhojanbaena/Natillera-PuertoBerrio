@@ -4,6 +4,7 @@ import {
   Banknote, Smartphone, CheckCircle2, Circle, Undo2, Wallet, Pencil, NotebookPen, Search, AlertTriangle,
 } from "lucide-react";
 import { Modal } from "./Modal";
+import { MoneyInput } from "./MoneyInput";
 import { formatMoney } from "../utils/formatters";
 
 export const METODOS = {
@@ -369,10 +370,7 @@ export const FondoDialog = ({ open, control, busy, error, onClose, onGuardar }) 
             Valor total con el que cuenta la natillera para liquidar a los socios en {control.anio}.
             La suma de los netos a recibir es {formatMoney(control.socios.reduce((t, s) => t + Math.max(0, num(s.total_neto_entregar)), 0))}.
           </p>
-          <input
-            type="number"
-            min="0"
-            step="1"
+          <MoneyInput
             required
             value={valor}
             onChange={(e) => setValor(e.target.value)}

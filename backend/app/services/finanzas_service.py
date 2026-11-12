@@ -5,13 +5,15 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
+from app.core.periodos import anio_del_periodo
 from app.models.socio import Socio
+from app.models.gastos import GastoGeneral
 from app.models.finanzas import FinanzaSocio, TipoMovimientoFinanciero
 from app.models.actividad import Actividad
 from app.models.rifa import Rifa
 from app.models.reunion import Reunion
-from app.models.prestamo import Prestamo, AbonoPrestamo, EstadoPrestamo
+from app.models.prestamo import Prestamo, AbonoPrestamo, EstadoPrestamo, ESTADOS_CERRADOS
 from app.schemas.dashboard import BienComunResponse, BienComunSocioItem, CapitalTotalResponse
 from app.schemas.finanzas import LiquidacionSocioItem, LiquidacionAnualResponse
 from app.services.prestamos_service import ZONA_COLOMBIA, hoy_colombia
@@ -32,6 +34,24 @@ def repartir_importe(total: Decimal, pesos: list[Decimal]) -> list[Decimal]:
     return [parte * signo for parte in partes]
 
 
+# Parte de cada interés cobrado que va al bien común:
+# - Regla 7 % / 3 %: la guardada en el abono (3 de cada 10 pesos).
+# - Abonos anteriores (sin ese dato): todo el interés desde la cuota #4.
+# El resto del interés es del socio que tomó el préstamo (su ahorro personal).
+INTERES_BIEN_COMUN = case(
+    (AbonoPrestamo.interes_bien_comun.isnot(None), AbonoPrestamo.interes_bien_comun),
+    (AbonoPrestamo.numero_cuota >= 4, AbonoPrestamo.monto_interes),
+    else_=Decimal("0.00"),
+)
+INTERES_SOCIO = AbonoPrestamo.monto_interes - INTERES_BIEN_COMUN
+
+
+def total_gastos_generales(db: Session, anio: int) -> Decimal:
+    return db.execute(
+        select(func.coalesce(func.sum(GastoGeneral.monto), Decimal("0.00"))).where(GastoGeneral.anio == anio)
+    ).scalar_one()
+
+
 def _limites_anio(anio: int) -> tuple[datetime, datetime]:
     """Inicio y fin (exclusivo) del año en hora de Colombia, expresados en UTC."""
     inicio = datetime(anio, 1, 1, tzinfo=ZONA_COLOMBIA)
@@ -49,7 +69,8 @@ def _por_socio(filas) -> dict[int, dict[str, Decimal]]:
 class FinanzasService:
     @staticmethod
     def calcular_bien_comun(db: Session, anio: Optional[int] = None) -> BienComunResponse:
-        """Consolida multas pagadas e intereses cobrados desde la cuarta cuota.
+        """Consolida multas pagadas y la parte de intereses que corresponde al bien común
+        (3 % de la regla 7 % / 3 %; en préstamos anteriores, intereses desde la cuarta cuota).
 
         Sin año usa todo el histórico; con año solo lo cobrado en ese año.
         Se reparte en partes iguales entre los socios activos.
@@ -64,8 +85,8 @@ class FinanzasService:
             select(func.coalesce(func.sum(FinanzaSocio.monto), Decimal("0.00"))).where(*condiciones_multas)
         ).scalar_one()
         total_intereses_bien_comun = db.execute(
-            select(func.coalesce(func.sum(AbonoPrestamo.monto_interes), Decimal("0.00")))
-            .where(AbonoPrestamo.numero_cuota >= 4, *condiciones_abonos)
+            select(func.coalesce(func.sum(INTERES_BIEN_COMUN), Decimal("0.00")))
+            .where(*condiciones_abonos)
         ).scalar_one()
         total_intereses_obtenidos = db.execute(
             select(func.coalesce(func.sum(AbonoPrestamo.monto_interes), Decimal("0.00"))).where(*condiciones_abonos)
@@ -161,7 +182,7 @@ class FinanzasService:
         # Cartera activa prestada (Saldo pendiente en la calle)
         stmt_cartera = select(
             func.coalesce(func.sum(Prestamo.saldo_pendiente), Decimal("0.00"))
-        ).where(Prestamo.estado != EstadoPrestamo.PAGADO.value)
+        ).where(Prestamo.estado.notin_(ESTADOS_CERRADOS))
         total_dinero_prestado_activo = db.execute(stmt_cartera).scalar_one()
 
         # Liquidez física disponible en caja
@@ -194,7 +215,7 @@ class FinanzasService:
           se les devuelve el ahorro y se les descuenta lo que deben, pero no
           reciben utilidades ni bien común.
         """
-        anio = anio or hoy_colombia().year
+        anio = anio or anio_del_periodo(db)
         inicio_dt, fin_dt = _limites_anio(anio)
         inicio_d, fin_d = date(anio, 1, 1), date(anio + 1, 1, 1)
         cero = Decimal("0.00")
@@ -224,9 +245,7 @@ class FinanzasService:
             + total_ganancias_reuniones
             + total_intereses_prestamos
         )
-        total_bien_comun_general = total_multas_cobradas + suma(
-            AbonoPrestamo.monto_interes, AbonoPrestamo.numero_cuota >= 4, *en_anio_abono
-        )
+        total_bien_comun_general = total_multas_cobradas + suma(INTERES_BIEN_COMUN, *en_anio_abono)
 
         # 2. Movimientos por socio agrupados en pocas consultas
         movimientos_anio = _por_socio(db.execute(
@@ -246,11 +265,12 @@ class FinanzasService:
             .group_by(FinanzaSocio.socio_id, FinanzaSocio.tipo_movimiento)
         ).all())
 
-        # Intereses de las tres primeras cuotas cobrados en el año: van al ahorro personal.
+        # Parte del socio de los intereses cobrados en el año (7 % de la regla 7 % / 3 %;
+        # en préstamos anteriores, las tres primeras cuotas): va a su ahorro personal.
         intereses_personales = dict(db.execute(
-            select(Prestamo.socio_id, func.sum(AbonoPrestamo.monto_interes))
+            select(Prestamo.socio_id, func.sum(INTERES_SOCIO))
             .join(AbonoPrestamo, AbonoPrestamo.prestamo_id == Prestamo.id)
-            .where(AbonoPrestamo.numero_cuota <= 3, *en_anio_abono)
+            .where(*en_anio_abono)
             .group_by(Prestamo.socio_id)
         ).all())
 
@@ -314,13 +334,23 @@ class FinanzasService:
             total_bien_comun_general,
             [Decimal("1") if item["socio"].is_active else cero for item in datos_socios],
         )
+        # Gastos generales del año: partes iguales solo entre socios activos.
+        # Se calculan siempre a partir de los gastos guardados, así no se descuentan dos veces.
+        total_gastos = total_gastos_generales(db, anio)
+        gastos_asignados = repartir_importe(
+            total_gastos,
+            [Decimal("1") if item["socio"].is_active else cero for item in datos_socios],
+        )
 
         socios_liquidados: list[LiquidacionSocioItem] = []
         total_deuda_descontada = cero
         total_multas_descontadas = cero
+        total_gastos_descontados = cero
         gran_total_a_entregar = cero
 
-        for item, utilidad, bien_comun_por_socio in zip(datos_socios, utilidades_por_socio, bien_comun_asignado):
+        for item, utilidad, bien_comun_por_socio, gasto in zip(
+            datos_socios, utilidades_por_socio, bien_comun_asignado, gastos_asignados,
+        ):
             s = item["socio"]
             ahorrado, deuda, multas = item["ahorrado"], item["deuda"], item["multas_pendientes"]
 
@@ -329,9 +359,11 @@ class FinanzasService:
             else:
                 participacion = cero
 
-            neto_entregar = ahorrado + utilidad + bien_comun_por_socio - deuda - multas
+            liquidacion_bruta = ahorrado + utilidad + bien_comun_por_socio - deuda - multas
+            neto_entregar = liquidacion_bruta - gasto
             total_deuda_descontada += deuda
             total_multas_descontadas += multas
+            total_gastos_descontados += gasto
             gran_total_a_entregar += neto_entregar
 
             socios_liquidados.append(
@@ -346,6 +378,8 @@ class FinanzasService:
                     bien_comun_asignado=bien_comun_por_socio,
                     deuda_prestamos=deuda,
                     multas_pendientes=multas,
+                    liquidacion_antes_gastos=liquidacion_bruta,
+                    gastos_generales=gasto,
                     total_neto_entregar=neto_entregar,
                 )
             )
@@ -359,6 +393,9 @@ class FinanzasService:
             rentabilidad_porcentual=rentabilidad_porcentual,
             total_deuda_descontada=total_deuda_descontada,
             total_multas_descontadas=total_multas_descontadas,
+            total_gastos_generales=total_gastos,
+            total_gastos_descontados=total_gastos_descontados,
+            socios_activos=sum(1 for item in datos_socios if item["socio"].is_active),
             gran_total_a_entregar=gran_total_a_entregar,
             socios_liquidados=socios_liquidados,
         )
@@ -366,7 +403,7 @@ class FinanzasService:
     @staticmethod
     def anios_con_movimientos(db: Session) -> list[int]:
         """Años desde el primer registro hasta el actual, del más reciente al más antiguo."""
-        actual = hoy_colombia().year
+        actual = anio_del_periodo(db)
         anios = []
         for columna in (FinanzaSocio.fecha, AbonoPrestamo.fecha_pago, Prestamo.fecha_prestamo,
                         Actividad.fecha, Rifa.fecha, Reunion.fecha):

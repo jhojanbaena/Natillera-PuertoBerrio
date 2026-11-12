@@ -11,7 +11,7 @@ from app.core.deps import get_current_active_admin, get_current_user
 from app.models.usuario import Usuario
 from app.models.socio import Socio
 from app.models.finanzas import FinanzaSocio, TipoMovimientoFinanciero
-from app.models.prestamo import Prestamo, EstadoPrestamo
+from app.models.prestamo import Prestamo, EstadoPrestamo, ESTADOS_CERRADOS
 from app.services.prestamos_service import fecha_a_datetime, sincronizar_moras, validar_fecha_registro
 from app.schemas.socio import SocioCreate, SocioUpdate, SocioResponse, SocioDetailResponse
 from app.schemas.finanzas import FinanzaMovimientoCreate, FinanzaResponse, MultaEstadoItem, MultaUpdate
@@ -358,8 +358,8 @@ def get_socio_perfil(
     stmt_prestamos = select(Prestamo).where(Prestamo.socio_id == socio_id).order_by(Prestamo.fecha_prestamo.desc())
     prestamos = db.execute(stmt_prestamos).scalars().all()
 
-    total_prestamos_activos = sum(1 for p in prestamos if p.estado != EstadoPrestamo.PAGADO.value)
-    saldo_prestamos_pendiente = sum(p.saldo_pendiente for p in prestamos if p.estado != EstadoPrestamo.PAGADO.value)
+    total_prestamos_activos = sum(1 for p in prestamos if p.estado not in ESTADOS_CERRADOS)
+    saldo_prestamos_pendiente = sum(p.saldo_pendiente for p in prestamos if p.estado not in ESTADOS_CERRADOS)
 
     return SocioDetailResponse(
         id=socio.id,

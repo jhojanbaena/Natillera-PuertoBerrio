@@ -3,7 +3,9 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
 import { RichTextDisplay } from "./RichTextField";
+import { MoneyInput } from "./MoneyInput";
 import { formatMoney, formatDate, fechaLocalISO } from "../utils/formatters";
+import { anioDeTrabajo } from "../utils/periodo";
 
 // Secciones tipo "Notas" del estado de cuenta del socio: una línea por aporte
 // mensual o multa. Tocar una línea pendiente registra su pago (con confirmación).
@@ -82,7 +84,7 @@ const esCampo = (e) => e.target.closest("input, select, textarea, label");
 
 export const AportesMensuales = ({ socio, onRegistrado }) => {
   const [abierta, setAbierta] = useState(false);
-  const [anio, setAnio] = useState(() => new Date().getFullYear());
+  const [anio, setAnio] = useState(() => anioDeTrabajo());
   const [borradores, setBorradores] = useState({});
   const [guardando, setGuardando] = useState(null);
 
@@ -200,10 +202,7 @@ export const AportesMensuales = ({ socio, onRegistrado }) => {
                   <>
                     <label className="flex items-center gap-1 text-slate-400">
                       $
-                      <input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
+                      <MoneyInput
                         value={datos.monto}
                         onChange={(e) => editar(periodo, "monto", e.target.value)}
                         aria-label={`Valor del aporte de ${nombre}`}
@@ -360,10 +359,7 @@ export const MultasSocio = ({ socio, onRegistrado }) => {
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-400">
                         <label className="flex items-center gap-1">
                           $
-                          <input
-                            type="number"
-                            min="0.01"
-                            step="0.01"
+                          <MoneyInput
                             value={datos.monto}
                             onChange={(e) => editar(multa, "monto", e.target.value)}
                             aria-label="Valor de la multa"
@@ -399,7 +395,7 @@ export const MultasSocio = ({ socio, onRegistrado }) => {
 const ESTADO_PRESTAMO = {
   PAGADO: { texto: "Pagado", clase: "bg-emerald-50 text-emerald-700" },
   EN_MORA: { texto: "En mora", clase: "bg-rose-50 text-rose-700" },
-  PENDIENTE: { texto: "Pendiente", clase: "bg-amber-50 text-amber-700" },
+  PENDIENTE: { texto: "Al día", clase: "bg-amber-50 text-amber-700" },
 };
 
 export const DeudasCredito = ({ socio }) => {

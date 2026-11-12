@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from app.core.periodos import anio_del_periodo
 from app.core.database import get_db
 from app.core.deps import get_current_active_admin, get_current_user
 from app.models.liquidacion import LiquidacionFondo, LiquidacionPago
@@ -32,7 +33,6 @@ from app.schemas.liquidacion_pago import (
 )
 from app.services.finanzas_service import FinanzasService
 from app.services.historial_service import registrar_movimiento
-from app.services.prestamos_service import hoy_colombia
 
 router = APIRouter(prefix="/finanzas/liquidacion-anual", tags=["Liquidación anual - Pagos"])
 
@@ -84,7 +84,7 @@ def get_control_liquidacion(
     db: Session = Depends(get_db),
     anio: Optional[int] = Query(None, ge=2000, le=2100),
 ) -> LiquidacionControlResponse:
-    anio = anio or hoy_colombia().year
+    anio = anio or anio_del_periodo(db)
     liquidacion = FinanzasService.calcular_liquidacion_anual(db, anio)
     fondo = db.execute(select(LiquidacionFondo).where(LiquidacionFondo.anio == anio)).scalar_one_or_none()
     pagos = {

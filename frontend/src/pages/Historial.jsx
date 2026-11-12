@@ -133,6 +133,12 @@ export const Historial = () => {
             <ArrowRightLeft className="w-3 h-3" /> Reversión
           </span>
         );
+      case "CAMBIAR_FECHA":
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+            <Calendar className="w-3 h-3" /> Cambio de fecha
+          </span>
+        );
       default:
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
@@ -355,7 +361,7 @@ export const Historial = () => {
                       </div>
                     </td>
                     <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      {item.tipo_accion !== "REVERTIR" && !item.revertido ? (
+                      {!["REVERTIR", "CAMBIAR_FECHA"].includes(item.tipo_accion) && !item.revertido ? (
                         <button
                           onClick={() => setItemToRevert(item)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[11px] border border-amber-200/80 transition-all active:scale-95 shadow-2xs"

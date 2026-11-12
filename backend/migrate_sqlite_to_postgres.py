@@ -51,13 +51,14 @@ def migrate(source_path: Path) -> dict[str, int]:
         raise FileNotFoundError(f"No se encontró la base SQLite: {source_path}")
 
     from app.core.config import settings
-    from app.core.database import Base
+    from app.core.database import Base, MAPA_ESQUEMAS_BASE
     import app.models  # noqa: F401
 
     database_url = settings.DATABASE_URL
     destination_engine = create_engine(
         database_url,
         pool_pre_ping=True,
+        execution_options={"schema_translate_map": MAPA_ESQUEMAS_BASE},
         pool_size=2,
         max_overflow=0,
     )
@@ -75,7 +76,8 @@ def migrate(source_path: Path) -> dict[str, int]:
                 "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
             )
         }
-        model_tables = set(Base.metadata.tables)
+        # "periodos" es nueva (apartado Años): la base SQLite antigua no la tiene.
+        model_tables = {t.name for t in Base.metadata.sorted_tables} - {"periodos"}
         unknown_tables = source_tables - model_tables
         missing_tables = model_tables - source_tables
         if unknown_tables:
@@ -107,6 +109,8 @@ def migrate(source_path: Path) -> dict[str, int]:
         migrated_counts: dict[str, int] = {}
         with destination_engine.begin() as connection:
             for table in Base.metadata.sorted_tables:
+                if table.name not in source_tables:
+                    continue
                 source_columns = {
                     row["name"]
                     for row in source.execute(

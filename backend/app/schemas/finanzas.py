@@ -65,6 +65,9 @@ class LiquidacionSocioItem(BaseModel):
     bien_comun_asignado: Decimal
     deuda_prestamos: Decimal
     multas_pendientes: Decimal
+    # Liquidación antes de gastos generales y la parte de gastos que le corresponde.
+    liquidacion_antes_gastos: Decimal = Decimal("0.00")
+    gastos_generales: Decimal = Decimal("0.00")
     total_neto_entregar: Decimal
 
 
@@ -77,6 +80,9 @@ class LiquidacionAnualResponse(BaseModel):
     rentabilidad_porcentual: Decimal
     total_deuda_descontada: Decimal
     total_multas_descontadas: Decimal
+    total_gastos_generales: Decimal = Decimal("0.00")
+    total_gastos_descontados: Decimal = Decimal("0.00")
+    socios_activos: int = 0
     gran_total_a_entregar: Decimal
     socios_liquidados: list[LiquidacionSocioItem]
 

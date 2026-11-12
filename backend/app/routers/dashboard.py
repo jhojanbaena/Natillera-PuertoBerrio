@@ -10,7 +10,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.socio import Socio
-from app.models.prestamo import Prestamo, EstadoPrestamo
+from app.models.prestamo import Prestamo, EstadoPrestamo, ESTADOS_CERRADOS
 from app.models.nota import Nota
 from app.schemas.dashboard import BienComunResponse, CapitalTotalResponse, DashboardSummaryResponse
 from app.schemas.finanzas import LiquidacionAnualResponse
@@ -83,7 +83,7 @@ def get_dashboard_summary(
 
     # 3. Préstamos activos y en mora (la mora depende de la fecha actual)
     sincronizar_moras(db)
-    stmt_activos = select(func.count(Prestamo.id)).where(Prestamo.estado != EstadoPrestamo.PAGADO.value)
+    stmt_activos = select(func.count(Prestamo.id)).where(Prestamo.estado.notin_(ESTADOS_CERRADOS))
     total_prestamos_activos = db.execute(stmt_activos).scalar_one()
 
     stmt_mora = select(func.count(Prestamo.id)).where(Prestamo.estado == EstadoPrestamo.EN_MORA.value)

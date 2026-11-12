@@ -1,6 +1,6 @@
 """Servicio centralizado para el Registro y Reversión del Historial de Movimientos."""
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, Optional
 from fastapi import HTTPException, status
@@ -26,6 +26,16 @@ def custom_json_serializer(obj: Any) -> Any:
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+
+def _como_utc(valor: Any) -> Optional[datetime]:
+    """Fecha y hora ISO como datetime en UTC (sin zona = UTC, como las guarda la base)."""
+    if valor is None:
+        return None
+    fecha = valor if isinstance(valor, datetime) else datetime.fromisoformat(str(valor))
+    if fecha.tzinfo is None:
+        return fecha.replace(tzinfo=timezone.utc)
+    return fecha.astimezone(timezone.utc)
 
 
 def model_to_dict(obj: Any, include_relationships: bool = True) -> Dict[str, Any]:
@@ -182,9 +192,13 @@ def revertir_movimiento(db: Session, historial_id: int, current_user: Usuario) -
             expected = json.loads(historial.datos_nuevos or "{}")
             actual = model_to_dict(target)
             numeric_fields = {c.key for c in inspect(target.__class__).columns if isinstance(c.type, Numeric)}
+            datetime_fields = {c.key for c in inspect(target.__class__).columns if isinstance(c.type, DateTime)}
             def same_value(key, value):
                 if key in numeric_fields and value is not None and actual.get(key) is not None:
                     return Decimal(str(actual[key])) == Decimal(str(value))
+                if key in datetime_fields and value is not None and actual.get(key) is not None:
+                    # SQLite devuelve las fechas sin zona horaria; se comparan como UTC.
+                    return _como_utc(actual[key]) == _como_utc(value)
                 return actual.get(key) == value
             if not expected or any(not same_value(k, v) for k, v in expected.items() if k not in {"updated_at"}):
                 raise HTTPException(status_code=409, detail="Hay cambios posteriores; revierte primero el movimiento más reciente")
@@ -221,7 +235,8 @@ def revertir_movimiento(db: Session, historial_id: int, current_user: Usuario) -
             # Por ID: cada pago de multa se restaura después de la multa que salda.
             for finanza in sorted(datos.get("finanzas", []), key=lambda f: f.get("id") or 0):
                 _restaurar_registro(db, FinanzaSocio, {**finanza, "socio_id": socio.id})
-            for prestamo in datos.get("prestamos", []):
+            # Por ID: en el mismo orden en que se crearon.
+            for prestamo in sorted(datos.get("prestamos", []), key=lambda p: p.get("id") or 0):
                 _restaurar_prestamo(db, {**prestamo, "socio_id": socio.id})
 
         elif entidad_tipo == "AbonoPrestamo":
@@ -315,6 +330,13 @@ def revertir_movimiento(db: Session, historial_id: int, current_user: Usuario) -
                     raise HTTPException(status_code=409, detail="La reversión excedería el capital del préstamo")
                 for campo in campos:
                     setattr(obj, campo, int(datos[campo]) if campo == "numero_cuota" else Decimal(datos[campo]))
+                # Tasa elegida (7 % / 10 %), fecha límite y retraso de la regla de intereses.
+                if "tasa_aplicada" in datos:
+                    obj.tasa_aplicada = Decimal(datos["tasa_aplicada"]) if datos["tasa_aplicada"] is not None else None
+                if "fecha_limite" in datos:
+                    obj.fecha_limite = date.fromisoformat(datos["fecha_limite"]) if datos["fecha_limite"] else None
+                if "dias_retraso" in datos:
+                    obj.dias_retraso = datos["dias_retraso"]
                 if datos.get("fecha_pago"):
                     obj.fecha_pago = datetime.fromisoformat(datos["fecha_pago"])
                 recalcular_prestamo(db, prestamo)

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getAnioConsulta, setAnioConsulta } from "../utils/periodo";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
 
@@ -16,6 +17,11 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Año que se está consultando (solo cuando no es el activo).
+    const anio = getAnioConsulta();
+    if (anio) {
+      config.headers["X-Periodo"] = anio;
+    }
     return config;
   },
   (error) => Promise.reject(error)
@@ -31,6 +37,17 @@ api.interceptors.response.use(
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
       }
+    }
+    // El año guardado ya no existe: volver al año activo.
+    const detalle = error.response?.data?.detail;
+    if (
+      error.response?.status === 404 &&
+      getAnioConsulta() &&
+      typeof detalle === "string" &&
+      /^El año d+ no existe$/.test(detalle)
+    ) {
+      setAnioConsulta(null);
+      window.location.reload();
     }
     return Promise.reject(error);
   }

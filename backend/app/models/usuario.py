@@ -2,11 +2,13 @@
 from datetime import datetime
 from sqlalchemy import String, Boolean, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
-from app.core.database import Base
+from app.core.database import Base, SCHEMA_COMUN
 
 
 class Usuario(Base):
     __tablename__ = "usuarios"
+    # Compartida por todos los años.
+    __table_args__ = {"schema": SCHEMA_COMUN}
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)

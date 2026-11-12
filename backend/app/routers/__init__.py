@@ -10,6 +10,9 @@ from app.routers.programacion import router as programacion_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.historial import router as historial_router
 from app.routers.liquidacion_pagos import router as liquidacion_pagos_router
+from app.routers.gastos_generales import router as gastos_generales_router
+from app.routers.contabilidad import router as contabilidad_router
+from app.routers.periodos import router as periodos_router
 
 __all__ = [
     "auth_router",
@@ -23,4 +26,7 @@ __all__ = [
     "dashboard_router",
     "historial_router",
     "liquidacion_pagos_router",
+    "gastos_generales_router",
+    "contabilidad_router",
+    "periodos_router",
 ]

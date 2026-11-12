@@ -43,7 +43,7 @@ def test_interest_only_final_payment_and_undo(client, prestamo):
 
 def test_zero_interest_loan_closes_on_capital_payment(client, socio):
     loan = client.post(f"{API}/prestamos", json={
-        "socio_id": socio["id"], "monto_prestado": "100", "numero_cuotas": 1,
+        "regla_interes": "FIJA", "socio_id": socio["id"], "monto_prestado": "100", "numero_cuotas": 1,
     }).json()
     payment(client, loan["id"], 100)
     assert client.get(f"{API}/prestamos/{loan['id']}").json()["estado"] == "PAGADO"

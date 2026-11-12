@@ -45,7 +45,11 @@ from sqlalchemy import create_engine, event, select  # noqa: E402
 
 import app.core.database as database  # noqa: E402
 
-sqlite_engine = create_engine(f"sqlite:///{DEMO_DB.as_posix()}", connect_args={"check_same_thread": False})
+sqlite_engine = create_engine(
+    f"sqlite:///{DEMO_DB.as_posix()}",
+    connect_args={"check_same_thread": False},
+    execution_options={"schema_translate_map": database.MAPA_ESQUEMAS_BASE},
+)
 
 
 @event.listens_for(sqlite_engine, "connect")

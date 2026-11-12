@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Sparkles, Users, AlertTriangle, Search, FileText, NotebookPen } from "lucide-react";
+import { Sparkles, Users, AlertTriangle, Search, FileText, NotebookPen, Receipt } from "lucide-react";
 import api from "../api/client";
 import { formatMoney } from "../utils/formatters";
 import { useAuth } from "../context/AuthContext";
+import { anioDeTrabajo } from "../utils/periodo";
 import {
   FondoResumen, BotonesPago, ControlLiquidados, PagoDialog, GestionDialog, FondoDialog,
 } from "../components/LiquidacionPagos";
@@ -20,7 +21,7 @@ export const Liquidacion = () => {
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("alfabetico");
-  const [anio, setAnio] = useState(new Date().getFullYear());
+  const [anio, setAnio] = useState(() => anioDeTrabajo());
   // Control de pagos de la liquidación
   const [vista, setVista] = useState("informe");
   const [control, setControl] = useState(null);
@@ -131,7 +132,7 @@ export const Liquidacion = () => {
 
   const aniosDisponibles = data?.anios_disponibles?.length
     ? data.anios_disponibles
-    : [new Date().getFullYear()];
+    : [anioDeTrabajo()];
 
   const handlePrint = () => window.print();
 
@@ -242,7 +243,7 @@ export const Liquidacion = () => {
           </div>
 
           {/* Resumen de descuentos */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 flex items-center gap-3">
               <div className="p-3 bg-rose-100 rounded-xl">
                 <AlertTriangle className="w-5 h-5 text-rose-600" />
@@ -261,6 +262,18 @@ export const Liquidacion = () => {
                 <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">Multas Descontadas</p>
                 <p className="text-xl font-black text-amber-700 mt-0.5">{formatMoney(data.total_multas_descontadas)}</p>
                 <p className="text-[11px] text-amber-500">Multas impagas al cierre</p>
+              </div>
+            </div>
+            <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4 flex items-center gap-3">
+              <div className="p-3 bg-violet-100 rounded-xl">
+                <Receipt className="w-5 h-5 text-violet-600" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-violet-800 uppercase tracking-wider">Gastos Generales</p>
+                <p className="text-xl font-black text-violet-700 mt-0.5">{formatMoney(data.total_gastos_descontados)}</p>
+                <p className="text-[11px] text-violet-500">
+                  Repartidos entre {data.socios_activos} socio{data.socios_activos === 1 ? "" : "s"} activo{data.socios_activos === 1 ? "" : "s"}
+                </p>
               </div>
             </div>
           </div>
@@ -343,6 +356,8 @@ export const Liquidacion = () => {
                     <th className="px-6 py-3 text-right">Bien Común</th>
                     <th className="px-6 py-3 text-right">Deuda Crédito</th>
                     <th className="px-6 py-3 text-right">Multas Impagas</th>
+                    <th className="px-6 py-3 text-right">Liquidación</th>
+                    <th className="px-6 py-3 text-right">Gastos Generales</th>
                     <th className="px-6 py-3 text-right font-black text-emerald-700">NETO A RECIBIR</th>
                   </tr>
                 </thead>
@@ -369,6 +384,10 @@ export const Liquidacion = () => {
                       <td className="px-6 py-4 text-right font-semibold text-amber-600">
                         {parseFloat(s.multas_pendientes) > 0 ? `- ${formatMoney(s.multas_pendientes)}` : "—"}
                       </td>
+                      <td className="px-6 py-4 text-right font-semibold text-slate-700">{formatMoney(s.liquidacion_antes_gastos)}</td>
+                      <td className="px-6 py-4 text-right font-semibold text-violet-600">
+                        {parseFloat(s.gastos_generales) > 0 ? `- ${formatMoney(s.gastos_generales)}` : "—"}
+                      </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <p className={`font-black text-lg whitespace-nowrap ${parseFloat(s.total_neto_entregar) < 0 ? "text-rose-700" : "text-emerald-700"}`}>
@@ -394,6 +413,10 @@ export const Liquidacion = () => {
                     <td className="px-6 py-4 text-right font-black text-emerald-700">{formatMoney(data.total_bien_comun_general)}</td>
                     <td className="px-6 py-4 text-right font-black text-rose-700">- {formatMoney(data.total_deuda_descontada)}</td>
                     <td className="px-6 py-4 text-right font-black text-amber-700">- {formatMoney(data.total_multas_descontadas)}</td>
+                    <td className="px-6 py-4 text-right font-black text-slate-800">
+                      {formatMoney(data.socios_liquidados.reduce((t, s) => t + parseFloat(s.liquidacion_antes_gastos || 0), 0))}
+                    </td>
+                    <td className="px-6 py-4 text-right font-black text-violet-700">- {formatMoney(data.total_gastos_descontados)}</td>
                     <td className="px-6 py-4 text-right font-black text-2xl text-emerald-700">{formatMoney(data.gran_total_a_entregar)}</td>
                   </tr>
                 </tfoot>
@@ -405,7 +428,8 @@ export const Liquidacion = () => {
           <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 text-xs text-blue-700">
             <strong>Nota de cálculo:</strong> Las utilidades de actividades, rifas y reuniones del año se reparten entre los socios activos en proporción a lo que ahorró cada uno ese año.
             El bien común se reparte en partes iguales entre los socios activos. Los socios inactivos solo reciben su ahorro y se les descuenta lo que deben.
-            Las deudas de préstamos y multas pendientes al cierre del año se descuentan del monto neto a entregar. 
+            Las deudas de préstamos y multas pendientes al cierre del año se descuentan del monto neto a entregar.
+            Los gastos generales del año se dividen en partes iguales entre los socios activos y se descuentan de su liquidación (Neto = Liquidación − Gastos generales). 
             El margen de redondeo de centavos es de máximo <strong>\$0.05</strong>.
           </div>
         </div>

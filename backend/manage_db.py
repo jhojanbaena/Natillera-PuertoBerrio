@@ -7,8 +7,9 @@ import argparse
 import json
 from sqlalchemy import inspect, text
 from sqlalchemy.schema import AddConstraint
-from app.core.database import Base, engine, finanzas_compat_sql
-from app.core.integrity import CHECKS
+from app.core.database import Base, engine, finanzas_compat_sql, prestamos_compat_sql
+from app.core.integrity import CHECKS, OBSOLETE_CHECKS
+from app.core.periodos import asegurar_periodo_inicial
 import app.models  # noqa: F401
 
 
@@ -16,7 +17,7 @@ def audit(connection):
     issues = {}
     inspector = inspect(connection)
     tables = set(inspector.get_table_names())
-    missing = set(Base.metadata.tables) - tables
+    missing = {t.name for t in Base.metadata.sorted_tables} - tables
     for name in sorted(missing):
         issues[f"tabla_ausente:{name}"] = 1
     for table_name, checks in CHECKS.items():
@@ -47,7 +48,7 @@ def audit(connection):
             ) a ON a.prestamo_id = p.id
             WHERE coalesce(a.capital, 0) > p.monto_prestado
                OR p.saldo_pendiente <> p.monto_prestado - coalesce(a.capital, 0)
-               OR p.cuotas_pagadas <> coalesce(a.cuotas, 0)
+               OR (p.regla_interes = 'FIJA' AND p.cuotas_pagadas <> coalesce(a.cuotas, 0))
                OR (p.estado = 'PAGADO' AND (p.saldo_pendiente <> 0 OR coalesce(a.interes, 0) < p.total_intereses))
         ''')).scalar_one()
         if count:
@@ -69,7 +70,10 @@ def upgrade(connection):
     connection.execute(text("SELECT pg_advisory_xact_lock(82146321)"))
     connection.execute(text("SET LOCAL lock_timeout = '5s'"))
     Base.metadata.create_all(connection)
-    tables = sorted(Base.metadata.tables)
+    # Columnas nuevas antes de auditar: las validaciones ya las usan.
+    for statement in prestamos_compat_sql(connection):
+        connection.execute(text(statement))
+    tables = sorted(t.name for t in Base.metadata.sorted_tables)
     connection.execute(text('LOCK TABLE ' + ', '.join('"' + name + '"' for name in tables) + ' IN SHARE ROW EXCLUSIVE MODE'))
     issues = audit(connection)
     if issues:
@@ -80,11 +84,16 @@ def upgrade(connection):
     finanzas_columns = {c["name"] for c in inspect(connection).get_columns("finanzas_socio")}
     for statement in finanzas_compat_sql(finanzas_columns):
         connection.execute(text(statement))
+    for table_name, names in OBSOLETE_CHECKS.items():
+        for name in names:
+            connection.execute(text(f'ALTER TABLE "{table_name}" DROP CONSTRAINT IF EXISTS "{name}"'))
     for table_name, checks in CHECKS.items():
         existing = {c["name"] for c in inspect(connection).get_check_constraints(table_name)}
         for constraint in Base.metadata.tables[table_name].constraints:
             if constraint.name in checks and constraint.name not in existing:
                 connection.execute(AddConstraint(constraint))
+    # Años: los datos existentes quedan registrados como el año en curso (sin moverlos).
+    asegurar_periodo_inicial(connection)
 
 
 def main():

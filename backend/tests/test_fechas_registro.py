@@ -45,8 +45,9 @@ def test_abono_con_fecha_validada_y_editable(client, prestamo):
     pid = prestamo["id"]  # préstamo del 2026-01-01
     base = {"prestamo_id": pid, "monto_abonado": "150", "monto_capital": "100", "monto_interes": "50"}
 
-    antes = client.post(f"{API}/prestamos/{pid}/abonos", json={**base, "fecha_pago": "2025-12-31"})
-    assert antes.status_code == 422
+    # Los abonos aceptan fechas pasadas, actuales o futuras; solo se rechazan fechas absurdas.
+    absurda = client.post(f"{API}/prestamos/{pid}/abonos", json={**base, "fecha_pago": "2101-01-01"})
+    assert absurda.status_code == 422
 
     creado = client.post(f"{API}/prestamos/{pid}/abonos", json={**base, "fecha_pago": "2026-02-01"})
     assert creado.status_code == 201, creado.text

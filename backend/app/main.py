@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import Base, engine, ensure_compatibility_columns
+from app.core.periodos import PeriodoSoloLectura
 import app.models  # Registra todos los modelos en Base.metadata
 from app.routers import (
     auth_router,
@@ -21,6 +22,9 @@ from app.routers import (
     dashboard_router,
     historial_router,
     liquidacion_pagos_router,
+    gastos_generales_router,
+    contabilidad_router,
+    periodos_router,
 )
 
 
@@ -49,13 +53,18 @@ app.add_middleware(
     allow_origins=settings.cors_origins_list,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Periodo"],
 )
 
 
 @app.exception_handler(IntegrityError)
 async def integrity_error_handler(request: Request, exc: IntegrityError):
     return JSONResponse(status_code=409, content={"detail": "La operación viola una restricción de integridad o un registro ya existe"})
+
+
+@app.exception_handler(PeriodoSoloLectura)
+async def periodo_solo_lectura_handler(request: Request, exc: PeriodoSoloLectura):
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
 @app.middleware("http")
@@ -80,6 +89,9 @@ all_routers = [
     dashboard_router,
     historial_router,
     liquidacion_pagos_router,
+    gastos_generales_router,
+    contabilidad_router,
+    periodos_router,
 ]
 
 # Inclusión con y sin prefijo para máxima versatilidad

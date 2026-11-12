@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { CalendarDays, Ticket, PartyPopper, Plus, TrendingUp, Edit3, Trash2 } from "lucide-react";
 import api from "../api/client";
 import { Modal } from "../components/Modal";
+import { MoneyInput } from "../components/MoneyInput";
 import { RichTextDisplay, RichTextField } from "../components/RichTextField";
 import { formatMoney, formatDate } from "../utils/formatters";
 
@@ -458,12 +459,12 @@ export const ActividadesRifas = () => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Inversión / Gastos ($)</label>
-              <input type="number" step="1000" min="0" value={actForm.inversion} onChange={(e) => setActForm({ ...actForm, inversion: e.target.value })}
+              <MoneyInput value={actForm.inversion} onChange={(e) => setActForm({ ...actForm, inversion: e.target.value })}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm" />
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Ingresos Brutos ($)</label>
-              <input type="number" step="1000" min="0" value={actForm.ingresos_brutos} onChange={(e) => setActForm({ ...actForm, ingresos_brutos: e.target.value })}
+              <MoneyInput value={actForm.ingresos_brutos} onChange={(e) => setActForm({ ...actForm, ingresos_brutos: e.target.value })}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm" />
             </div>
           </div>
@@ -512,14 +513,14 @@ export const ActividadesRifas = () => {
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Inversión en Premios ($)</label>
-              <input type="number" step="0.01" min="0" value={rifaForm.inversion_premios} onChange={(e) => setRifaForm({ ...rifaForm, inversion_premios: e.target.value })}
+              <MoneyInput value={rifaForm.inversion_premios} onChange={(e) => setRifaForm({ ...rifaForm, inversion_premios: e.target.value })}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm" />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Valor Boleta ($)</label>
-              <input type="number" step="0.01" min="0" value={rifaForm.valor_boleta} onChange={(e) => setRifaForm({ ...rifaForm, valor_boleta: e.target.value })}
+              <MoneyInput value={rifaForm.valor_boleta} onChange={(e) => setRifaForm({ ...rifaForm, valor_boleta: e.target.value })}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm" />
             </div>
             <div>
@@ -578,7 +579,7 @@ export const ActividadesRifas = () => {
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Fondo Recaudado ($)</label>
-              <input type="number" step="0.01" min="0" value={reunionForm.ganancias_reunion} onChange={(e) => setReunionForm({ ...reunionForm, ganancias_reunion: e.target.value })}
+              <MoneyInput value={reunionForm.ganancias_reunion} onChange={(e) => setReunionForm({ ...reunionForm, ganancias_reunion: e.target.value })}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
           </div>

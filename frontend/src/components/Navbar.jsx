@@ -1,7 +1,9 @@
 import React from "react";
-import { Menu, ShieldCheck, RefreshCw } from "lucide-react";
+import { Menu, ShieldCheck, RefreshCw, CalendarRange } from "lucide-react";
+import { usePeriodo } from "../context/PeriodoContext";
 
 export const Navbar = ({ onOpenSidebar, onRefresh, isRefreshing, title = "Sistema Natillera" }) => {
+  const { periodo } = usePeriodo();
   return (
     <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 md:px-8 py-3.5 flex items-center justify-between">
       <div className="flex items-center gap-3">
@@ -15,6 +17,19 @@ export const Navbar = ({ onOpenSidebar, onRefresh, isRefreshing, title = "Sistem
       </div>
 
       <div className="flex items-center gap-3">
+        {periodo?.anio_consultado && (
+          <div
+            title={periodo.solo_lectura ? "Año de solo consulta" : "Año activo"}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+              periodo.solo_lectura
+                ? "bg-amber-50 text-amber-800 border-amber-200"
+                : "bg-purple-50 text-purple-800 border-purple-200/60"
+            }`}
+          >
+            <CalendarRange className="w-3.5 h-3.5" />
+            <span>{periodo.solo_lectura ? `Consultando ${periodo.anio_consultado}` : `Año ${periodo.anio_consultado}`}</span>
+          </div>
+        )}
         {onRefresh && (
           <button
             onClick={onRefresh}

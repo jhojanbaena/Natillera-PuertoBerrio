@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import api from "../api/client";
 import { Modal } from "../components/Modal";
+import { MoneyInput } from "../components/MoneyInput";
 import { RichTextDisplay, RichTextField } from "../components/RichTextField";
 import { AportesMensuales, DeudasCredito, MultasSocio } from "../components/SocioAportesMultas";
 import { formatMoney, formatDate, fechaLocalISO } from "../utils/formatters";
@@ -485,12 +486,8 @@ export const Socios = () => {
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Aporte Mensual ($) *
               </label>
-              <input
-                type="text"
-                inputMode="decimal"
-                pattern="[0-9]+(\.[0-9]{1,2})?"
+              <MoneyInput
                 title="Aporte mensual: solo números (máximo 2 decimales)"
-                maxLength={13}
                 required
                 value={formData.aporte_mensual}
                 onChange={(e) => setFormData({ ...formData, aporte_mensual: soloMonto(e.target.value) })}
@@ -661,10 +658,7 @@ export const Socios = () => {
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
               Monto en Dinero ($) *
             </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
+            <MoneyInput
               required
               value={movementData.monto}
               onChange={(e) => setMovementData({ ...movementData, monto: e.target.value })}

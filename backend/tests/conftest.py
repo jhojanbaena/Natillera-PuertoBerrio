@@ -13,14 +13,16 @@ os.environ["ENVIRONMENT"] = "test"
 os.environ["BACKEND_CORS_ORIGINS"] = "http://localhost:5173"
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.engine import make_url
 from sqlalchemy.schema import CreateSchema, DropSchema
 
-from app.core.database import Base, get_db
+from app.core.database import Base, SCHEMA_COMUN, get_db
+from app.core.periodos import configurar_periodo
 from app.core.security import create_access_token, get_password_hash
 from app.main import app
 from app.models.usuario import Usuario
@@ -40,12 +42,13 @@ def database_engine():
         if url.get_backend_name() != "postgresql" or url.database != "natillera_test" or url.host not in {"127.0.0.1", "localhost"}:
             raise ValueError("TEST_DATABASE_URL debe apuntar a PostgreSQL local y a la base natillera_test")
         schema = "test_" + uuid4().hex
-        engine = create_engine(url, execution_options={"schema_translate_map": {None: schema}})
+        engine = create_engine(url, execution_options={"schema_translate_map": {None: schema, SCHEMA_COMUN: schema}})
         with engine.begin() as connection:
             connection.execute(CreateSchema(schema))
     else:
         engine = create_engine(
-            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool,
+            execution_options={"schema_translate_map": {None: None, SCHEMA_COMUN: None}},
         )
 
         @event.listens_for(engine, "connect")
@@ -57,6 +60,12 @@ def database_engine():
     finally:
         if schema:
             with engine.begin() as connection:
+                # Incluye los esquemas de los años creados durante la prueba.
+                anios = connection.execute(text(
+                    "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE :p"
+                ), {"p": schema + r"\_periodo\_%"}).scalars().all()
+                for nombre in anios:
+                    connection.execute(DropSchema(nombre, cascade=True))
                 connection.execute(DropSchema(schema, cascade=True))
         engine.dispose()
 
@@ -74,8 +83,9 @@ def client(password_hash, database_engine):
         ])
         db.commit()
 
-    def override_db():
+    def override_db(request: Request):
         with sessions() as db:
+            configurar_periodo(db, request.headers.get("X-Periodo"))
             yield db
 
     app.dependency_overrides[get_db] = override_db
@@ -102,7 +112,7 @@ def socio(client):
 @pytest.fixture
 def prestamo(client, socio):
     response = client.post("/api/v1/prestamos", json={
-        "socio_id": socio["id"], "monto_prestado": "1000.00",
+        "regla_interes": "FIJA", "socio_id": socio["id"], "monto_prestado": "1000.00",
         "tasa_interes": "10.00", "numero_cuotas": 2,
         "fecha_prestamo": "2026-01-01", "fecha_vencimiento": "2026-03-01",
     })

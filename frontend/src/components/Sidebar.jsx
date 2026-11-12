@@ -8,14 +8,19 @@ import {
   Sparkles, 
   History,
   HandHeart,
+  Receipt,
+  Scale,
+  CalendarRange,
   LogOut, 
   PiggyBank, 
   X 
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { usePeriodo } from "../context/PeriodoContext";
 
 export const Sidebar = ({ isOpen, onClose }) => {
   const { user, logout } = useAuth();
+  const { periodo } = usePeriodo();
   const navigate = useNavigate();
 
   const navItems = [
@@ -26,6 +31,8 @@ export const Sidebar = ({ isOpen, onClose }) => {
     { to: "/liquidacion", label: "Liquidación Anual", icon: Sparkles },
     { to: "/historial", label: "Historial de Movimientos", icon: History },
     { to: "/bien-comun", label: "Bien Común", icon: HandHeart },
+    { to: "/gastos-generales", label: "Gastos Generales", icon: Receipt },
+    { to: "/contabilidad", label: "Contabilidad", icon: Scale },
   ];
 
   const handleLogout = () => {
@@ -90,6 +97,33 @@ export const Sidebar = ({ isOpen, onClose }) => {
             );
           })}
         </nav>
+
+        {/* Años: historial de periodos y creación de un año nuevo */}
+        <div className="px-4 pb-3">
+          <NavLink
+            to="/anios"
+            onClick={() => onClose && onClose()}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3.5 py-3 rounded-xl font-medium text-sm transition-all ${
+                isActive
+                  ? "bg-emerald-50 text-emerald-700 font-semibold shadow-xs"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              }`
+            }
+          >
+            <CalendarRange className="w-5 h-5" />
+            Años
+            {periodo?.anio_consultado && (
+              <span
+                className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  periodo.solo_lectura ? "bg-amber-100 text-amber-800" : "bg-purple-100 text-purple-800"
+                }`}
+              >
+                {periodo.anio_consultado}
+              </span>
+            )}
+          </NavLink>
+        </div>
 
         {/* User Card & Logout */}
         <div className="p-4 border-t border-slate-100 bg-slate-50/50">

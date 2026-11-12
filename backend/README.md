@@ -205,6 +205,56 @@ Resultado del 21 de octubre de 2026: **64 pruebas aprobadas en PostgreSQL**, con
 **86% de cobertura de sentencias**. En SQLite pasan 63 y se omite la prueba de
 concurrencia que requiere PostgreSQL. Los seis defectos iniciales están corregidos.
 
+## Intereses 10 % (7 % socio / 3 % bien común)
+
+- Los préstamos nuevos usan la regla `REPARTO_7_3`: cada mes
+  causa el 10 % del **capital pendiente** al iniciar el mes (el primer mes sobre el
+  monto prestado; los abonos a capital hechos hasta el día en que inicia un mes
+  reducen la base de ese mes). Mientras quede capital se siguen causando meses,
+  aunque se supere el número de cuotas pactado; con capital en $0 se detienen.
+  Pagar intereses no reduce capital y viceversa.
+- Cada interés cobrado se reparte 7/10 al ahorro personal del socio que tomó el
+  préstamo y 3/10 al bien común; la parte del bien común queda guardada en
+  `abonos_prestamo.interes_bien_comun`. Los abonos anteriores (columna en NULL)
+  conservan su clasificación original (cuota ≥ 4 al bien común).
+- Los abonos aceptan cualquier fecha (pasada, actual o futura, entre 2000 y 2100).
+
+## Gastos Generales y Contabilidad
+
+- `gastos_generales` (`/gastos-generales`): gastos por año de liquidación. En la
+  liquidación de ese año el total se reparte en partes iguales solo entre socios
+  activos (`gastos_generales` por socio, `liquidacion_antes_gastos` y
+  `total_gastos_descontados` en `/finanzas/liquidacion-anual`). El valor por
+  socio se calcula siempre desde los gastos guardados: no se descuenta dos veces y
+  se ajusta si cambian los socios activos. Sin socios activos el valor es $0.
+- `contabilidad_cuentas`, `contabilidad_registros`, `contabilidad_registro_cuentas`
+  (`/contabilidad`): el dinero esperado = liquidez del Dashboard (capital total −
+  cartera prestada) − gastos generales − liquidaciones pagadas. `POST
+  /contabilidad/registros` copia las cuentas y los totales en tablas propias; los
+  registros no se editan ni se borran.
+- Migración: `python manage_db.py upgrade` (con respaldo previo) crea las tablas
+  nuevas, agrega `interes_bien_comun` y reemplaza los CHECK de `prestamos` por
+  `ck_prestamo_estado_v3` y `ck_prestamo_regla_v3`. No modifica registros existentes. En el demo SQLite usar
+  `python demo_local.py --reset` (SQLite no permite cambiar CHECK).
+
+## Intereses 7 % / 10 % (regla anterior)
+
+- Los préstamos creados con la regla `MORA_7_10` la conservan: cada mes causa
+  `monto_prestado × 7 %` si se paga a más tardar en la fecha límite (el mismo día
+  del mes del desembolso) y `× 10 %` desde el día siguiente. Al registrar un abono
+  el sistema sugiere la tasa por la fecha y el administrador puede elegir la otra;
+  la elegida, la fecha límite y los días de retraso quedan guardados en el abono.
+  Cada abono paga el interés de un solo mes (`numero_cuota`), así la regla del bien
+  común (cuota ≥ 4) no cambia. `GET /prestamos/{id}/abonos/vista-previa` muestra el
+  cálculo antes de guardar.
+- Los préstamos anteriores quedan con la regla `FIJA` y conservan su tasa, sus
+  abonos y sus totales. El estado "en mora" empieza al día siguiente de la fecha
+  límite (antes había 5 días de gracia).
+- Instalaciones existentes: ejecutar `python manage_db.py upgrade` (con respaldo
+  previo). Solo agrega columnas con valores por defecto y actualiza los CHECK de
+  `prestamos`; no modifica registros. En el demo SQLite usar
+  `python demo_local.py --reset`.
+
 ## Reglas corregidas
 
 - La liquidación reparte las ganancias netas de actividades, rifas y reuniones
@@ -230,3 +280,16 @@ concurrencia que requiere PostgreSQL. Los seis defectos iniciales están corregi
 No se requieren migraciones ni dependencias nuevas para las correcciones. No se
 ha ejecutado una recalculación masiva de datos históricos. Consulta
 [TEST_REPORT.md](TEST_REPORT.md) para resultados, límites y comandos.
+
+## Años (periodos de la natillera)
+
+- Cada año es un periodo independiente. El año original (2026) conserva sus datos
+  en las tablas de siempre: la actualización no mueve ni borra ningún registro.
+- Al crear un año nuevo (menú **Años** → **CREAR NUEVO AÑO**) se crea un esquema
+  propio (`periodo_2027`, ...) con las mismas tablas vacías y se copian los socios
+  del último año con su mismo ID y datos personales. Lo demás inicia en cero.
+- Usuarios, periodos y límites de login son compartidos por todos los años.
+- Los años que no son el activo se consultan en solo lectura (cabecera `X-Periodo`);
+  cualquier intento de modificarlos responde 403.
+- Instalaciones existentes: ejecutar `python manage_db.py upgrade` (con respaldo)
+  para crear la tabla `periodos` y registrar los datos actuales como el año en curso.
