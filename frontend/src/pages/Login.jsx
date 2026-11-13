@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PiggyBank, Lock, User, AlertCircle, ArrowRight } from "lucide-react";
+import { Lock, User, AlertCircle, ArrowRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 export const Login = () => {
@@ -38,10 +38,12 @@ export const Login = () => {
       <div className="w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl border border-slate-100/20 relative z-10">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex p-4 rounded-2xl bg-gradient-to-tr from-purple-700 to-fuchsia-500 text-white shadow-lg shadow-purple-500/25 mb-4">
-            <PiggyBank className="w-8 h-8" />
-          </div>
-          <h1 className="text-2xl font-black text-purple-800 tracking-tight">Sistema Natillera</h1>
+          <img
+            src="/logo-natillera.jpg"
+            alt="Logo Natillera Puerto Berrío"
+            className="w-24 h-24 mx-auto mb-4 rounded-full object-cover shadow-lg shadow-purple-500/25"
+          />
+          <h1 className="text-2xl font-black text-purple-800 tracking-tight">Natillera Puerto Berrío</h1>
           <p className="text-sm text-slate-500 mt-1">Gestión integral de ahorro y crédito comunitario</p>
         </div>
 

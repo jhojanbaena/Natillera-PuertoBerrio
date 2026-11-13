@@ -1,16 +1,11 @@
 // Piezas de UI para el control de pagos de la Liquidación anual.
 import React, { useState } from "react";
 import {
-  Banknote, Smartphone, CheckCircle2, Circle, Undo2, Wallet, Pencil, NotebookPen, Search, AlertTriangle,
+  CheckCircle2, Circle, Undo2, Wallet, Pencil, NotebookPen, Search, AlertTriangle,
 } from "lucide-react";
 import { Modal } from "./Modal";
 import { MoneyInput } from "./MoneyInput";
 import { formatMoney } from "../utils/formatters";
-
-export const METODOS = {
-  EFECTIVO: { label: "Efectivo", Icon: Banknote },
-  TRANSFERENCIA: { label: "Transferencia", Icon: Smartphone },
-};
 
 const num = (v) => parseFloat(v ?? 0) || 0;
 
@@ -73,42 +68,36 @@ export const FondoResumen = ({ control, isAdmin, onAjustar }) => {
   );
 };
 
-/* ---------- Botones pequeños junto al neto a recibir ---------- */
+/* ---------- Botón "Ya se liquidó" junto al neto a recibir ---------- */
 export const BotonesPago = ({ item, isAdmin, onPagar }) => {
   if (!item) return null;
   const pago = item.pago;
   if (pago) {
-    const { Icon, label } = METODOS[pago.metodo_pago] || METODOS.EFECTIVO;
     return (
       <span
-        title={`Liquidado en ${label.toLowerCase()} el ${formatFechaPago(pago.fecha_pago)}`}
+        title={`Liquidado el ${formatFechaPago(pago.fecha_pago)}`}
         className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 text-[11px] font-bold whitespace-nowrap"
       >
         <CheckCircle2 className="w-3.5 h-3.5" />
-        <Icon className="w-3.5 h-3.5" />
         Liquidado
       </span>
     );
   }
   const sinValor = num(item.total_neto_entregar) < 0;
   const disabled = !isAdmin || sinValor;
-  const motivo = !isAdmin ? "Solo un administrador puede registrar pagos" : sinValor ? "El socio debe dinero; no hay valor a entregar" : null;
+  const motivo = !isAdmin ? "Solo un administrador puede registrar liquidaciones" : sinValor ? "El socio debe dinero; no hay valor a entregar" : null;
   return (
-    <span className="inline-flex gap-1">
-      {Object.entries(METODOS).map(([metodo, { label, Icon }]) => (
-        <button
-          key={metodo}
-          type="button"
-          disabled={disabled}
-          onClick={() => onPagar(item, metodo)}
-          title={motivo || `Pagar en ${label.toLowerCase()}`}
-          aria-label={`Pagar liquidación de ${item.nombre} en ${label.toLowerCase()}`}
-          className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-sky-600 hover:border-sky-300 hover:bg-sky-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-slate-500 disabled:hover:border-slate-200"
-        >
-          <Icon className="w-3.5 h-3.5" />
-        </button>
-      ))}
-    </span>
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onPagar(item)}
+      title={motivo || "Marcar que el socio ya recibió su liquidación"}
+      aria-label={`Ya se liquidó a ${item.nombre}`}
+      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px] font-bold whitespace-nowrap hover:text-sky-600 hover:border-sky-300 hover:bg-sky-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-slate-500 disabled:hover:border-slate-200"
+    >
+      <CheckCircle2 className="w-3.5 h-3.5" />
+      Ya se liquidó
+    </button>
   );
 };
 
@@ -138,7 +127,7 @@ export const ControlLiquidados = ({ control, isAdmin, onPagar, onGestionar }) =>
           <NotebookPen className="w-5 h-5 text-amber-500" /> Control de socios liquidados
         </h3>
         <p className="text-xs text-slate-400 mt-0.5">
-          Toca un socio pendiente para registrar su pago. Toca uno liquidado para cambiar el método o revertirlo.
+          Toca un socio pendiente para marcarlo como liquidado. Toca uno liquidado para revertirlo.
         </p>
         <div className="mt-3 flex flex-col sm:flex-row gap-2">
           <label className="relative flex-1">
@@ -173,7 +162,6 @@ export const ControlLiquidados = ({ control, isAdmin, onPagar, onGestionar }) =>
         )}
         {items.map((s) => {
           const pago = s.pago;
-          const metodo = pago ? metodoInfo(pago.metodo_pago) : null;
           const sinValor = !pago && num(s.total_neto_entregar) < 0;
           const clickable = isAdmin && !sinValor;
           return (
@@ -198,7 +186,7 @@ export const ControlLiquidados = ({ control, isAdmin, onPagar, onGestionar }) =>
                   <span className="block text-xs text-slate-400 truncate">
                     {pago ? (
                       <>
-                        {formatMoney(pago.monto)} · {metodo.label} · {formatFechaPago(pago.fecha_pago)}
+                        {formatMoney(pago.monto)} · {formatFechaPago(pago.fecha_pago)}
                       </>
                     ) : sinValor ? (
                       <>Debe {formatMoney(Math.abs(num(s.total_neto_entregar)))} · sin valor a entregar</>
@@ -209,7 +197,7 @@ export const ControlLiquidados = ({ control, isAdmin, onPagar, onGestionar }) =>
                 </span>
                 {pago ? (
                   <span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-bold">
-                    <metodo.Icon className="w-3.5 h-3.5" /> Liquidado
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Liquidado
                   </span>
                 ) : (
                   <span className="shrink-0 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-[11px] font-bold">
@@ -225,40 +213,23 @@ export const ControlLiquidados = ({ control, isAdmin, onPagar, onGestionar }) =>
   );
 };
 
-function metodoInfo(metodo) {
-  return METODOS[metodo] || METODOS.EFECTIVO;
-}
-
-/* ---------- Confirmar un pago ---------- */
-export const PagoDialog = ({ dialog, control, busy, error, onClose, onConfirm, onMetodo }) => {
+/* ---------- Confirmar "Ya se liquidó" ---------- */
+export const PagoDialog = ({ dialog, control, busy, error, onClose, onConfirm }) => {
   const item = dialog?.item;
   const neto = num(item?.total_neto_entregar);
   const saldo = num(control?.saldo_disponible);
   const insuficiente = neto > saldo;
   return (
-    <Modal isOpen={!!dialog} onClose={busy ? () => {} : onClose} title="Registrar liquidación">
+    <Modal isOpen={!!dialog} onClose={busy ? () => {} : onClose} title="Ya se liquidó">
       {item && (
         <div className="space-y-4">
           <div>
             <p className="text-sm text-slate-500">Socio</p>
             <p className="text-lg font-black text-slate-800">{item.nombre}</p>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(METODOS).map(([metodo, { label, Icon }]) => (
-              <button
-                key={metodo}
-                type="button"
-                onClick={() => onMetodo(metodo)}
-                className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-bold transition-colors ${
-                  dialog.metodo === metodo
-                    ? "border-sky-400 bg-sky-50 text-sky-700 ring-2 ring-sky-100"
-                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                <Icon className="w-4 h-4" /> {label}
-              </button>
-            ))}
-          </div>
+          <p className="text-sm text-slate-500">
+            Confirma que este socio ya recibió su liquidación. Quedará marcado como liquidado.
+          </p>
           <dl className="rounded-xl bg-slate-50 border border-slate-100 p-3 text-sm space-y-1.5">
             <div className="flex justify-between"><dt className="text-slate-500">Saldo disponible</dt><dd className="font-bold">{formatMoney(saldo)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">Neto a entregar</dt><dd className="font-bold text-rose-600">- {formatMoney(neto)}</dd></div>
@@ -274,10 +245,10 @@ export const PagoDialog = ({ dialog, control, busy, error, onClose, onConfirm, o
             <button onClick={onClose} disabled={busy} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">Cancelar</button>
             <button
               onClick={onConfirm}
-              disabled={busy || !dialog.metodo || insuficiente}
+              disabled={busy || insuficiente}
               className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {busy ? "Guardando..." : "Confirmar pago"}
+              {busy ? "Guardando..." : "Ya se liquidó"}
             </button>
           </div>
         </div>
@@ -286,8 +257,8 @@ export const PagoDialog = ({ dialog, control, busy, error, onClose, onConfirm, o
   );
 };
 
-/* ---------- Gestionar un pago ya registrado ---------- */
-export const GestionDialog = ({ item, busy, error, onClose, onCambiarMetodo, onRevertir }) => {
+/* ---------- Gestionar una liquidación ya registrada ---------- */
+export const GestionDialog = ({ item, busy, error, onClose, onRevertir }) => {
   const [confirmarReversion, setConfirmarReversion] = useState(false);
   const pago = item?.pago;
   const cerrar = () => { if (!busy) { setConfirmarReversion(false); onClose(); } };
@@ -298,29 +269,9 @@ export const GestionDialog = ({ item, busy, error, onClose, onCambiarMetodo, onR
           <div>
             <p className="text-lg font-black text-slate-800">{item.nombre}</p>
             <p className="text-sm text-slate-500">
-              {formatMoney(pago.monto)} entregados el {formatFechaPago(pago.fecha_pago)}
+              {formatMoney(pago.monto)} · liquidado el {formatFechaPago(pago.fecha_pago)}
               {pago.usuario_nombre ? ` · registró ${pago.usuario_nombre}` : ""}
             </p>
-          </div>
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Método de pago</p>
-            <div className="grid grid-cols-2 gap-2">
-              {Object.entries(METODOS).map(([metodo, { label, Icon }]) => (
-                <button
-                  key={metodo}
-                  type="button"
-                  disabled={busy || pago.metodo_pago === metodo}
-                  onClick={() => onCambiarMetodo(pago, metodo)}
-                  className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-bold transition-colors ${
-                    pago.metodo_pago === metodo
-                      ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-                      : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  <Icon className="w-4 h-4" /> {label}
-                </button>
-              ))}
-            </div>
           </div>
           {error && <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl p-3">{error}</p>}
           {confirmarReversion ? (

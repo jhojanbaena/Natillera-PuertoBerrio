@@ -1,6 +1,8 @@
 """Router para la Gestión Integral de Socios (/socios).
 Cumple con los criterios RF2-RF3 (CRUD completo, listado ordenado y perfil financiero detallado).
 """
+import json
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Annotated, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,9 +13,17 @@ from app.core.deps import get_current_active_admin, get_current_user
 from app.models.usuario import Usuario
 from app.models.socio import Socio
 from app.models.finanzas import FinanzaSocio, TipoMovimientoFinanciero
+from app.models.actividad_socio import ActividadSocio
+from app.models.historial import HistorialMovimiento
 from app.models.prestamo import Prestamo, EstadoPrestamo, ESTADOS_CERRADOS
-from app.services.prestamos_service import fecha_a_datetime, sincronizar_moras, validar_fecha_registro
-from app.schemas.socio import SocioCreate, SocioUpdate, SocioResponse, SocioDetailResponse
+from app.services.finanzas_service import calcular_total_ahorrado_socio, detalle_impresion_socio
+from app.services.prestamos_service import (
+    fecha_a_datetime, intereses_pendientes_vencidos, sincronizar_moras, validar_fecha_registro,
+)
+from app.schemas.socio import (
+    ActividadSocioCreate, ActividadSocioResponse, DeduccionesSocio, DeduccionMultaItem, DeduccionPrestamoItem, MovimientoPrestamoItem,
+    SocioCreate, SocioUpdate, SocioResponse, SocioDetailResponse, TotalAhorradoSocio,
+)
 from app.schemas.finanzas import FinanzaMovimientoCreate, FinanzaResponse, MultaEstadoItem, MultaUpdate
 from app.services.historial_service import registrar_movimiento, model_to_dict
 from app.services.socio_service import cambiar_id_socio
@@ -56,6 +66,183 @@ def estado_multas(movimientos) -> List[MultaEstadoItem]:
             fecha_pago=pago.fecha if pago else None,
         ))
     return resultado
+
+
+CERO = Decimal("0.00")
+
+
+def _pesos(valor) -> str:
+    """$1.234.567 (formato colombiano) para textos del historial."""
+    try:
+        numero = Decimal(str(valor))
+    except Exception:
+        return f"${valor}"
+    return "$" + f"{numero:,.0f}".replace(",", ".")
+
+
+def calcular_deducciones(prestamos, multas) -> DeduccionesSocio:
+    """Consolida todo lo que el socio debe hoy a la natillera.
+
+    - Préstamos sin cancelar: capital pendiente e intereses de meses ya vencidos
+      que siguen sin pagar (se actualizan solos con cada abono).
+    - Multas cargadas que siguen sin pagar.
+    """
+    items_prestamos = []
+    for p in prestamos:
+        if p.estado in ESTADOS_CERRADOS:
+            continue
+        capital = p.saldo_pendiente or CERO
+        intereses = intereses_pendientes_vencidos(p)
+        if capital <= 0 and intereses <= 0:
+            continue
+        items_prestamos.append(DeduccionPrestamoItem(
+            prestamo_id=p.id, orden_socio=p.orden_socio, estado=p.estado,
+            capital_pendiente=capital, intereses_pendientes=intereses, total=capital + intereses,
+        ))
+    items_multas = [
+        DeduccionMultaItem(multa_id=m.id, descripcion=m.descripcion, fecha=m.fecha, monto=m.monto)
+        for m in multas if not m.pagada
+    ]
+    total_capital = sum((i.capital_pendiente for i in items_prestamos), CERO)
+    total_intereses = sum((i.intereses_pendientes for i in items_prestamos), CERO)
+    total_multas = sum((i.monto for i in items_multas), CERO)
+    return DeduccionesSocio(
+        prestamos=items_prestamos,
+        multas=items_multas,
+        total_capital_pendiente=total_capital,
+        total_intereses_pendientes=total_intereses,
+        total_multas_pendientes=total_multas,
+        total_deducciones=total_capital + total_intereses + total_multas,
+    )
+
+
+def _como_fecha(valor, por_defecto: datetime) -> datetime:
+    if isinstance(valor, datetime):
+        fecha = valor
+    elif isinstance(valor, str):
+        try:
+            fecha = datetime.fromisoformat(valor)
+        except ValueError:
+            return por_defecto
+    else:
+        return por_defecto
+    return fecha if fecha.tzinfo else fecha.replace(tzinfo=timezone.utc)
+
+
+def _json(texto) -> dict:
+    if not texto:
+        return {}
+    try:
+        datos = json.loads(texto)
+    except (TypeError, ValueError):
+        return {}
+    if isinstance(datos, str):  # Reversiones guardan el JSON original como texto.
+        return _json(datos)
+    return datos if isinstance(datos, dict) else {}
+
+
+def _decimal(valor) -> Decimal:
+    try:
+        return Decimal(str(valor if valor is not None else "0"))
+    except Exception:
+        return CERO
+
+
+def movimientos_prestamos_socio(db: Session, prestamos) -> List[MovimientoPrestamoItem]:
+    """Abonos y pagos a préstamos del socio para su historial individual.
+
+    - Un renglón por cada abono vigente (sin duplicados: sale de la tabla de abonos).
+      El abono que deja el préstamo cancelado se marca como PAGO.
+    - Trazabilidad desde la bitácora: correcciones de abonos (EDICION), abonos que
+      se revirtieron y la reversión misma (REVERSION). Nada de esto se guarda dos
+      veces: se lee de los registros existentes.
+    """
+    ids_prestamos = {p.id for p in prestamos}
+    if not ids_prestamos:
+        return []
+    ahora = datetime.now(timezone.utc)
+    items: List[MovimientoPrestamoItem] = []
+    abonos_vigentes = set()
+    for p in prestamos:
+        ordenados = sorted(p.abonos, key=lambda a: (_como_fecha(a.fecha_pago, ahora), a.id))
+        for abono in ordenados:
+            abonos_vigentes.add(abono.id)
+            es_pago = p.estado == EstadoPrestamo.PAGADO.value and abono is ordenados[-1]
+            items.append(MovimientoPrestamoItem(
+                clave=f"abono-{abono.id}",
+                tipo="PAGO" if es_pago else "ABONO",
+                fecha=_como_fecha(abono.fecha_pago, ahora),
+                prestamo_id=p.id,
+                abono_id=abono.id,
+                numero_cuota=abono.numero_cuota,
+                monto=abono.monto_abonado,
+                monto_capital=abono.monto_capital,
+                monto_interes=abono.monto_interes,
+                descripcion=(
+                    f"{'Pago final' if es_pago else 'Abono'} al préstamo #{p.id} · cuota #{abono.numero_cuota} · "
+                    f"capital {_pesos(abono.monto_capital)} + interés {_pesos(abono.monto_interes)}"
+                    + (" · préstamo cancelado" if es_pago else "")
+                ),
+            ))
+
+    bitacora = db.execute(
+        select(HistorialMovimiento)
+        .where(
+            HistorialMovimiento.entidad_tipo == "AbonoPrestamo",
+            HistorialMovimiento.tipo_accion.in_(["CREAR", "EDITAR", "REVERTIR"]),
+        )
+        .order_by(HistorialMovimiento.created_at.asc(), HistorialMovimiento.id.asc())
+    ).scalars().all()
+    for h in bitacora:
+        nuevos, previos = _json(h.datos_nuevos), _json(h.datos_previos)
+        datos = nuevos or previos
+        prestamo_id = datos.get("prestamo_id")
+        if prestamo_id not in ids_prestamos:
+            continue
+        registrado = _como_fecha(h.created_at, ahora)
+        if h.tipo_accion == "CREAR":
+            if h.entidad_id in abonos_vigentes:
+                continue  # Ya aparece como abono vigente.
+            items.append(MovimientoPrestamoItem(
+                clave=f"historial-{h.id}",
+                tipo="ABONO",
+                fecha=_como_fecha(nuevos.get("fecha_pago"), registrado),
+                prestamo_id=prestamo_id,
+                abono_id=h.entidad_id,
+                numero_cuota=nuevos.get("numero_cuota"),
+                monto=_decimal(nuevos.get("monto_abonado")),
+                descripcion=f"Abono #{h.entidad_id} al préstamo #{prestamo_id} (revertido; ya no cuenta en el saldo)",
+                vigente=False,
+            ))
+        elif h.tipo_accion == "EDITAR":
+            antes, despues = previos.get("monto_abonado"), nuevos.get("monto_abonado")
+            items.append(MovimientoPrestamoItem(
+                clave=f"historial-{h.id}",
+                tipo="EDICION",
+                fecha=registrado,
+                prestamo_id=prestamo_id,
+                abono_id=h.entidad_id,
+                numero_cuota=nuevos.get("numero_cuota"),
+                monto=_decimal(despues),
+                descripcion=(
+                    f"Corrección del abono #{h.entidad_id} del préstamo #{prestamo_id}: "
+                    f"{_pesos(antes)} → {_pesos(despues)}"
+                    + (" (corrección revertida)" if h.revertido else "")
+                ),
+                vigente=not h.revertido,
+            ))
+        else:  # REVERTIR
+            items.append(MovimientoPrestamoItem(
+                clave=f"historial-{h.id}",
+                tipo="REVERSION",
+                fecha=registrado,
+                prestamo_id=prestamo_id,
+                abono_id=h.entidad_id,
+                numero_cuota=datos.get("numero_cuota"),
+                monto=_decimal((previos or nuevos).get("monto_abonado")),
+                descripcion=h.descripcion,
+            ))
+    return items
 
 
 @router.post("", response_model=SocioResponse, status_code=status.HTTP_201_CREATED, summary="Registrar un nuevo socio")
@@ -360,6 +547,7 @@ def get_socio_perfil(
 
     total_prestamos_activos = sum(1 for p in prestamos if p.estado not in ESTADOS_CERRADOS)
     saldo_prestamos_pendiente = sum(p.saldo_pendiente for p in prestamos if p.estado not in ESTADOS_CERRADOS)
+    multas = estado_multas(historial_finanzas)
 
     return SocioDetailResponse(
         id=socio.id,
@@ -376,9 +564,126 @@ def get_socio_perfil(
         total_prestamos_activos=total_prestamos_activos,
         saldo_prestamos_pendiente=saldo_prestamos_pendiente,
         historial_finanzas=historial_finanzas,
-        multas=estado_multas(historial_finanzas),
+        multas=multas,
         prestamos=prestamos,
+        deducciones=calcular_deducciones(prestamos, multas),
+        total_ahorrado_socio=TotalAhorradoSocio(**calcular_total_ahorrado_socio(db, socio_id)),
+        movimientos_prestamos=movimientos_prestamos_socio(db, prestamos),
+        actividades=db.execute(
+            select(ActividadSocio).where(ActividadSocio.socio_id == socio_id).order_by(ActividadSocio.id.asc())
+        ).scalars().all(),
     )
+
+
+def _socio_o_404(db: Session, socio_id: int) -> Socio:
+    socio = db.execute(select(Socio).where(Socio.id == socio_id)).scalar_one_or_none()
+    if not socio:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Socio con ID {socio_id} no encontrado")
+    return socio
+
+
+def _actividad_o_404(db: Session, socio_id: int, actividad_id: int) -> ActividadSocio:
+    actividad = db.execute(select(ActividadSocio).where(
+        ActividadSocio.id == actividad_id, ActividadSocio.socio_id == socio_id,
+    )).scalar_one_or_none()
+    if actividad is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="La actividad no existe para este socio")
+    return actividad
+
+
+def _texto_actividad(a: ActividadSocio) -> str:
+    cantidad = f", {a.cantidad_vendida} vendidas" if a.cantidad_vendida is not None else ""
+    return f"'{a.nombre}'{cantidad}, ganancia {_pesos(a.ganancia)}"
+
+
+@router.post("/{socio_id}/actividades", response_model=ActividadSocioResponse, status_code=status.HTTP_201_CREATED,
+             summary="Agregar una línea de actividad al socio")
+def crear_actividad_socio(
+    socio_id: int,
+    actividad_in: ActividadSocioCreate,
+    current_user: Annotated[Usuario, Depends(get_current_active_admin)],
+    db: Session = Depends(get_db),
+) -> ActividadSocio:
+    socio = _socio_o_404(db, socio_id)
+    actividad = ActividadSocio(socio_id=socio_id, **actividad_in.model_dump())
+    db.add(actividad)
+    db.flush()
+    registrar_movimiento(
+        db=db, modulo="Socios", tipo_accion="CREAR",
+        descripcion=f"Actividad agregada a {socio.nombre}: {_texto_actividad(actividad)}",
+        entidad_tipo="ActividadSocio", entidad_id=actividad.id, datos_nuevos=actividad, usuario=current_user,
+    )
+    db.commit()
+    db.refresh(actividad)
+    return actividad
+
+
+@router.put("/{socio_id}/actividades/{actividad_id}", response_model=ActividadSocioResponse,
+            summary="Editar una línea de actividad del socio")
+def editar_actividad_socio(
+    socio_id: int,
+    actividad_id: int,
+    actividad_in: ActividadSocioCreate,
+    current_user: Annotated[Usuario, Depends(get_current_active_admin)],
+    db: Session = Depends(get_db),
+) -> ActividadSocio:
+    socio = _socio_o_404(db, socio_id)
+    actividad = _actividad_o_404(db, socio_id, actividad_id)
+    previos = model_to_dict(actividad)
+    for campo, valor in actividad_in.model_dump().items():
+        setattr(actividad, campo, valor)
+    db.flush()
+    registrar_movimiento(
+        db=db, modulo="Socios", tipo_accion="EDITAR",
+        descripcion=f"Actividad de {socio.nombre} actualizada: {_texto_actividad(actividad)}",
+        entidad_tipo="ActividadSocio", entidad_id=actividad.id, datos_previos=previos, datos_nuevos=actividad,
+        usuario=current_user,
+    )
+    db.commit()
+    db.refresh(actividad)
+    return actividad
+
+
+@router.delete("/{socio_id}/actividades/{actividad_id}", summary="Eliminar una línea de actividad del socio")
+def eliminar_actividad_socio(
+    socio_id: int,
+    actividad_id: int,
+    current_user: Annotated[Usuario, Depends(get_current_active_admin)],
+    db: Session = Depends(get_db),
+):
+    socio = _socio_o_404(db, socio_id)
+    actividad = _actividad_o_404(db, socio_id, actividad_id)
+    registrar_movimiento(
+        db=db, modulo="Socios", tipo_accion="ELIMINAR",
+        descripcion=f"Actividad eliminada de {socio.nombre}: {_texto_actividad(actividad)}",
+        entidad_tipo="ActividadSocio", entidad_id=actividad.id, datos_previos=actividad, usuario=current_user,
+    )
+    db.delete(actividad)
+    db.commit()
+    return {"message": "Actividad eliminada", "actividad_id": actividad_id}
+
+
+@router.get("/{socio_id}/hoja-ahorro", summary="Datos de la hoja imprimible del socio (Total ahorrado y deducciones)")
+def get_socio_hoja_ahorro(
+    socio_id: int,
+    current_user: Annotated[Usuario, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+) -> dict:
+    """Cuotas por mes, rifas internas, actividades, deducciones y gastos del socio.
+
+    Los totales son los mismos de "Total ahorrado" y "Deducciones" del estado de cuenta.
+    """
+    socio = db.execute(select(Socio).where(Socio.id == socio_id)).scalar_one_or_none()
+    if not socio:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Socio con ID {socio_id} no encontrado")
+    sincronizar_moras(db)
+    movimientos = db.execute(select(FinanzaSocio).where(FinanzaSocio.socio_id == socio_id)).scalars().all()
+    prestamos = db.execute(select(Prestamo).where(Prestamo.socio_id == socio_id)).scalars().all()
+    deducciones = calcular_deducciones(prestamos, estado_multas(movimientos))
+    return {
+        "socio": {"id": socio.id, "nombre": socio.nombre, "cedula": socio.cedula, "activo": socio.is_active},
+        **detalle_impresion_socio(db, socio_id, deducciones),
+    }
 
 
 @router.post("/{socio_id}/movimientos", response_model=FinanzaResponse, status_code=status.HTTP_201_CREATED, summary="Registrar movimiento financiero a socio (Aporte, Multa, Pago)")

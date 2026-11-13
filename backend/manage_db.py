@@ -7,7 +7,9 @@ import argparse
 import json
 from sqlalchemy import inspect, text
 from sqlalchemy.schema import AddConstraint
-from app.core.database import Base, engine, finanzas_compat_sql, prestamos_compat_sql
+from app.core.database import (
+    Base, actividades_socio_compat_sql, compat_esquemas_de_anios, engine, finanzas_compat_sql, liquidacion_metodo_opcional, prestamos_compat_sql,
+)
 from app.core.integrity import CHECKS, OBSOLETE_CHECKS
 from app.core.periodos import asegurar_periodo_inicial
 import app.models  # noqa: F401
@@ -73,6 +75,11 @@ def upgrade(connection):
     # Columnas nuevas antes de auditar: las validaciones ya las usan.
     for statement in prestamos_compat_sql(connection):
         connection.execute(text(statement))
+    # Liquidación sin método de pago ("Ya se liquidó") y columnas nuevas en cada año.
+    liquidacion_metodo_opcional(connection)
+    for statement in actividades_socio_compat_sql(connection):
+        connection.execute(text(statement))
+    compat_esquemas_de_anios(connection)
     tables = sorted(t.name for t in Base.metadata.sorted_tables)
     connection.execute(text('LOCK TABLE ' + ', '.join('"' + name + '"' for name in tables) + ' IN SHARE ROW EXCLUSIVE MODE'))
     issues = audit(connection)

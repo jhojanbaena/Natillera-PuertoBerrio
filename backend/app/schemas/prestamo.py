@@ -100,9 +100,17 @@ class PrestamoResponse(PrestamoBase):
     created_at: datetime
     regla_interes: str = ReglaInteres.FIJA.value
     tasa_mora: Optional[Decimal] = None
+    # Orden histórico del préstamo entre los del socio (NULL en préstamos anteriores a la regla).
+    orden_socio: Optional[int] = None
     abonos: List[AbonoPrestamoResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def es_segundo_prestamo(self) -> bool:
+        """Segundo préstamo (o posterior): 100 % de los intereses al bien común."""
+        return prestamos_service.es_segundo_prestamo(self)
 
     @computed_field
     @property

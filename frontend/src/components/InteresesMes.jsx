@@ -162,6 +162,7 @@ export const InteresesMes = ({ prestamos, socios, onRegistrado }) => {
             <span className="text-slate-400">
               {l.destino === "REPARTO_7_3"
                 ? `→ Socio ${formatMoney(l.interesSocio)} · Bien común ${formatMoney(l.interesBienComun)}`
+                : l.destino === "BIEN_COMUN_SEGUNDO_PRESTAMO" ? "→ Bien común 100 % (segundo préstamo)"
                 : l.destino === "BIEN_COMUN" ? "→ Bien común" : "→ Ahorro personal"}
             </span>
           </div>

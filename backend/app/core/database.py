@@ -72,6 +72,13 @@ def ensure_compatibility_columns() -> None:
     with engine.begin() as connection:
         for statement in prestamos_compat_sql(connection):
             connection.execute(text(statement))
+        liquidacion_metodo_opcional(connection)
+        for statement in actividades_socio_compat_sql(connection):
+            connection.execute(text(statement))
+        if connection.dialect.name == "sqlite":
+            from app.core.periodos import _adjuntar_sqlite
+            _adjuntar_sqlite(connection.connection.dbapi_connection, esquemas_de_anios(connection))
+        compat_esquemas_de_anios(connection)
         if connection.dialect.name == "postgresql":
             # SQLite no permite cambiar CHECK; en el demo basta con --reset.
             from app.core.integrity import CHECKS, OBSOLETE_CHECKS
@@ -107,18 +114,22 @@ def finanzas_compat_sql(existing_columns: set[str]) -> list[str]:
     return statements
 
 
-def prestamos_compat_sql(connection) -> list[str]:
+def prestamos_compat_sql(connection, schema: str | None = None) -> list[str]:
     """DDL idempotente para las reglas de interés 7 % / 10 % y 7 % / 3 %.
 
     Solo agrega columnas con valores por defecto: los préstamos y abonos
-    existentes conservan sus valores (regla FIJA).
+    existentes conservan sus valores (regla FIJA). `orden_socio` queda NULL en
+    los préstamos existentes, que así conservan su distribución de intereses.
+    Con `schema` se aplica a las tablas de un año (periodo_AAAA).
     """
     inspector = inspect(connection)
-    prestamo_cols = {c["name"] for c in inspector.get_columns("prestamos")}
-    abono_cols = {c["name"] for c in inspector.get_columns("abonos_prestamo")}
+    prestamo_cols = {c["name"] for c in inspector.get_columns("prestamos", schema=schema)}
+    abono_cols = {c["name"] for c in inspector.get_columns("abonos_prestamo", schema=schema)}
+    prefijo = f'"{schema}".' if schema else ""
     nuevas_prestamo = {
         "regla_interes": "VARCHAR(20) NOT NULL DEFAULT 'FIJA'",
         "tasa_mora": "NUMERIC(5, 2)",
+        "orden_socio": "INTEGER",
     }
     nuevas_abono = {
         "tasa_aplicada": "NUMERIC(5, 2)",
@@ -127,11 +138,96 @@ def prestamos_compat_sql(connection) -> list[str]:
         "interes_bien_comun": "NUMERIC(12, 2)",
     }
     statements = [
-        f"ALTER TABLE prestamos ADD COLUMN {nombre} {tipo}"
+        f"ALTER TABLE {prefijo}prestamos ADD COLUMN {nombre} {tipo}"
         for nombre, tipo in nuevas_prestamo.items() if nombre not in prestamo_cols
     ]
     statements += [
-        f"ALTER TABLE abonos_prestamo ADD COLUMN {nombre} {tipo}"
+        f"ALTER TABLE {prefijo}abonos_prestamo ADD COLUMN {nombre} {tipo}"
         for nombre, tipo in nuevas_abono.items() if nombre not in abono_cols
     ]
     return statements
+
+
+def actividades_socio_compat_sql(connection, schema: str | None = None) -> list[str]:
+    """Columnas tipo y mes de las actividades del socio (las líneas existentes quedan como OTRA)."""
+    inspector = inspect(connection)
+    if not inspector.has_table("actividades_socio", schema=schema):
+        return []
+    columnas = {c["name"] for c in inspector.get_columns("actividades_socio", schema=schema)}
+    prefijo = f'"{schema}".' if schema else ""
+    nuevas = {"tipo": "VARCHAR(20) NOT NULL DEFAULT 'OTRA'", "mes": "INTEGER"}
+    return [
+        f"ALTER TABLE {prefijo}actividades_socio ADD COLUMN {nombre} {tipo}"
+        for nombre, tipo in nuevas.items() if nombre not in columnas
+    ]
+
+
+def esquemas_de_anios(connection) -> list[str]:
+    """Esquemas de los años creados con el apartado Años (vacío si aún no hay)."""
+    try:
+        filas = connection.execute(text("SELECT esquema FROM periodos WHERE esquema IS NOT NULL")).all()
+    except Exception:  # Tabla de periodos aún no creada.
+        return []
+    import re
+    return [fila[0] for fila in filas if fila[0] and re.match(r"^[a-z_][a-z0-9_]{0,62}$", fila[0])]
+
+
+def liquidacion_metodo_opcional(connection, schema: str | None = None) -> None:
+    """Permite liquidar sin método de pago (botón "Ya se liquidó").
+
+    Los pagos existentes conservan su método; solo se quita el NOT NULL.
+    """
+    inspector = inspect(connection)
+    if not inspector.has_table("liquidacion_pagos", schema=schema):
+        return
+    columna = next((c for c in inspector.get_columns("liquidacion_pagos", schema=schema)
+                    if c["name"] == "metodo_pago"), None)
+    if columna is None or columna.get("nullable", True):
+        return
+    prefijo = f'"{schema}".' if schema else ""
+    if connection.dialect.name == "postgresql":
+        connection.execute(text(f"ALTER TABLE {prefijo}liquidacion_pagos ALTER COLUMN metodo_pago DROP NOT NULL"))
+        return
+    # SQLite (modo demo/pruebas) no permite quitar NOT NULL: se reconstruye la tabla
+    # copiando todas las filas, con el procedimiento recomendado por SQLite.
+    maestro = f'"{schema}".sqlite_master' if schema else "sqlite_master"
+    sql_tabla = connection.execute(text(
+        f"SELECT sql FROM {maestro} WHERE type = 'table' AND name = 'liquidacion_pagos'"
+    )).scalar_one()
+    sql_indices = [fila[0] for fila in connection.execute(text(
+        f"SELECT sql FROM {maestro} WHERE type = 'index' AND tbl_name = 'liquidacion_pagos' AND sql IS NOT NULL"
+    )).all()]
+    import re
+    nuevo_sql = re.sub(r"(metodo_pago\s+VARCHAR\(20\))\s+NOT NULL", r"\1", sql_tabla, count=1, flags=re.IGNORECASE)
+    nuevo_sql = re.sub(r"CREATE TABLE\s+\"?liquidacion_pagos\"?", f"CREATE TABLE {prefijo}liquidacion_pagos_nueva",
+                       nuevo_sql, count=1, flags=re.IGNORECASE)
+    connection.execute(text(nuevo_sql))
+    connection.execute(text(f"INSERT INTO {prefijo}liquidacion_pagos_nueva SELECT * FROM {prefijo}liquidacion_pagos"))
+    connection.execute(text(f"DROP TABLE {prefijo}liquidacion_pagos"))
+    connection.execute(text(f"ALTER TABLE {prefijo}liquidacion_pagos_nueva RENAME TO liquidacion_pagos"))
+    for sql_indice in sql_indices:
+        if schema:
+            sql_indice = re.sub(r"(CREATE (?:UNIQUE )?INDEX\s+)", rf'\1"{schema}".', sql_indice, count=1, flags=re.IGNORECASE)
+        connection.execute(text(sql_indice))
+
+
+def compat_esquemas_de_anios(connection) -> None:
+    """Aplica las columnas y tablas nuevas también a las tablas de cada año creado."""
+    from app.models.actividad_socio import ActividadSocio
+
+    for esquema in esquemas_de_anios(connection):
+        for statement in prestamos_compat_sql(connection, esquema):
+            connection.execute(text(statement))
+        liquidacion_metodo_opcional(connection, esquema)
+        if not inspect(connection).has_table(ActividadSocio.__tablename__, schema=esquema):
+            # Tabla nueva del año: se crea con el mismo mapeo de esquemas que usa Años.
+            mapa_previo = connection.get_execution_options().get("schema_translate_map") or MAPA_ESQUEMAS_BASE
+            connection.execution_options(schema_translate_map={
+                None: esquema, SCHEMA_COMUN: mapa_previo.get(SCHEMA_COMUN),
+            })
+            try:
+                ActividadSocio.__table__.create(connection, checkfirst=False)
+            finally:
+                connection.execution_options(schema_translate_map=mapa_previo)
+        for statement in actividades_socio_compat_sql(connection, esquema):
+            connection.execute(text(statement))

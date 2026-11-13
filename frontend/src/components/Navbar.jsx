@@ -3,7 +3,7 @@ import { Menu, ShieldCheck, RefreshCw, CalendarRange } from "lucide-react";
 import { usePeriodo } from "../context/PeriodoContext";
 import { ThemeToggle } from "./ThemeToggle";
 
-export const Navbar = ({ onOpenSidebar, onRefresh, isRefreshing, title = "Sistema Natillera" }) => {
+export const Navbar = ({ onOpenSidebar, onRefresh, isRefreshing, title = "Natillera Puerto Berrío" }) => {
   const { periodo } = usePeriodo();
   return (
     <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 md:px-8 py-3.5 flex items-center justify-between">

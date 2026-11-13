@@ -1,4 +1,4 @@
-"""Control de pagos de la liquidación anual: método, saldo del fondo y duplicados."""
+"""Control de pagos de la liquidación anual ("Ya se liquidó"): saldo del fondo y duplicados."""
 from decimal import Decimal
 
 from app.services.prestamos_service import hoy_colombia
@@ -35,7 +35,7 @@ def test_pago_descuenta_saldo_y_no_se_duplica(client):
     assert inicial["fondo_definido"] is False
     assert inicial["total_pendientes"] == 2
 
-    r = client.post(f"{BASE}/pagos", json={"anio": anio, "socio_id": a, "metodo_pago": "EFECTIVO"})
+    r = client.post(f"{BASE}/pagos", json={"anio": anio, "socio_id": a})
     assert r.status_code == 201, r.text
     assert Decimal(r.json()["monto"]) == Decimal("5000.00")
 
@@ -44,19 +44,20 @@ def test_pago_descuenta_saldo_y_no_se_duplica(client):
     assert Decimal(estado["monto_utilizado"]) == Decimal("5000.00")
     assert Decimal(estado["saldo_disponible"]) == Decimal("3000.00")
     item_a = next(s for s in estado["socios"] if s["socio_id"] == a)
-    assert item_a["liquidado"] and item_a["pago"]["metodo_pago"] == "EFECTIVO"
+    # Solo queda marcado como liquidado: no se registra método de pago.
+    assert item_a["liquidado"] and item_a["pago"]["metodo_pago"] is None
 
     # Segundo intento sobre el mismo socio: rechazado y el saldo no cambia.
-    r = client.post(f"{BASE}/pagos", json={"anio": anio, "socio_id": a, "metodo_pago": "TRANSFERENCIA"})
+    r = client.post(f"{BASE}/pagos", json={"anio": anio, "socio_id": a})
     assert r.status_code == 409
     assert Decimal(control(client, anio)["saldo_disponible"]) == Decimal("3000.00")
 
-    r = client.post(f"{BASE}/pagos", json={"anio": anio, "socio_id": b, "metodo_pago": "TRANSFERENCIA"})
+    r = client.post(f"{BASE}/pagos", json={"anio": anio, "socio_id": b})
     assert r.status_code == 201, r.text
     assert Decimal(control(client, anio)["saldo_disponible"]) == Decimal("0.00")
 
 
-def test_saldo_insuficiente_reversion_y_cambio_de_metodo(client):
+def test_saldo_insuficiente_y_reversion(client):
     anio = hoy_colombia().year
     a = crear_socio_con_ahorro(client, "3333333", "Carla", "5000.00")
     b = crear_socio_con_ahorro(client, "4444444", "Dario", "3000.00")
@@ -65,15 +66,15 @@ def test_saldo_insuficiente_reversion_y_cambio_de_metodo(client):
     r = client.put(f"{BASE}/fondo", json={"anio": anio, "monto_general": "6000.00"})
     assert r.status_code == 200, r.text
 
-    pago_a = client.post(f"{BASE}/pagos", json={"anio": anio, "socio_id": a, "metodo_pago": "EFECTIVO"}).json()
-    r = client.post(f"{BASE}/pagos", json={"anio": anio, "socio_id": b, "metodo_pago": "EFECTIVO"})
+    pago_a = client.post(f"{BASE}/pagos", json={"anio": anio, "socio_id": a}).json()
+    r = client.post(f"{BASE}/pagos", json={"anio": anio, "socio_id": b})
     assert r.status_code == 409 and "insuficiente" in r.json()["detail"]
 
     r = client.put(f"{BASE}/fondo", json={"anio": anio, "monto_general": "4000.00"})
     assert r.status_code == 409
 
-    r = client.put(f"{BASE}/pagos/{pago_a['id']}", json={"metodo_pago": "TRANSFERENCIA"})
-    assert r.status_code == 200 and r.json()["metodo_pago"] == "TRANSFERENCIA"
+    # Ya no existe el cambio de método de pago.
+    assert client.put(f"{BASE}/pagos/{pago_a['id']}", json={"metodo_pago": "TRANSFERENCIA"}).status_code == 405
     assert Decimal(control(client, anio)["saldo_disponible"]) == Decimal("1000.00")
 
     r = client.delete(f"{BASE}/pagos/{pago_a['id']}")
@@ -89,7 +90,7 @@ def test_solo_admin_registra_pagos(client):
     anio = hoy_colombia().year
     a = crear_socio_con_ahorro(client, "5555555", "Elena", "1000.00")
     r = client.post(
-        f"{BASE}/pagos", json={"anio": anio, "socio_id": a, "metodo_pago": "EFECTIVO"},
+        f"{BASE}/pagos", json={"anio": anio, "socio_id": a},
         headers={"Authorization": "Bearer " + create_access_token("reader-test")},
     )
     assert r.status_code == 403

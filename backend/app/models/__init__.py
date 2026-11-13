@@ -6,6 +6,7 @@ from app.models.socio import Socio
 from app.models.finanzas import FinanzaSocio, TipoMovimientoFinanciero
 from app.models.prestamo import Prestamo, AbonoPrestamo, EstadoPrestamo, ReglaInteres
 from app.models.actividad import Actividad
+from app.models.actividad_socio import ActividadSocio
 from app.models.rifa import Rifa, TipoRifa
 from app.models.reunion import Reunion
 from app.models.nota import Nota
@@ -23,6 +24,7 @@ __all__ = [
     "EstadoPrestamo",
     "ReglaInteres",
     "Actividad",
+    "ActividadSocio",
     "Rifa",
     "TipoRifa",
     "Reunion",

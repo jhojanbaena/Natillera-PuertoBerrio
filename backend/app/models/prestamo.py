@@ -53,6 +53,10 @@ class Prestamo(Base):
         String(20), nullable=False, default=ReglaInteres.FIJA.value, server_default=ReglaInteres.FIJA.value
     )
     tasa_mora: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
+    # Orden histórico del préstamo dentro de los préstamos del socio (1 = primero,
+    # 2 = segundo, ...). Se fija al crearlo. NULL en préstamos creados antes de esta
+    # regla: conservan su distribución original de intereses.
+    orden_socio: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

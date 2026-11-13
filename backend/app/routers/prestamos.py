@@ -17,8 +17,8 @@ from app.models.prestamo import (
 from app.services.historial_service import registrar_movimiento, model_to_dict
 from app.services.prestamos_service import (
     CERO, TASA_MORA, TASA_NORMAL, TASA_REPARTO,
-    calcular_abono_mora, cuota_por_defecto, es_regla_mora, es_regla_reparto, fecha_a_datetime, fecha_local, hoy_colombia,
-    interes_mensual, parte_bien_comun, periodos_interes, recalcular_prestamo,
+    calcular_abono_mora, cuota_por_defecto, es_regla_mora, es_regla_reparto, es_segundo_prestamo, fecha_a_datetime, fecha_local, hoy_colombia,
+    interes_mensual, parte_bien_comun, periodos_interes, prestamos_creados_por_socio, recalcular_prestamo,
     sincronizar_moras, tasa_mora_de, tasa_sugerida, validar_fecha_abono,
 )
 from app.schemas.prestamo import (
@@ -58,9 +58,11 @@ def create_prestamo(
     Con la regla REPARTO_7_3 (por defecto) la tasa es 10 % mensual sobre el capital
     pendiente: 7 % para el socio y 3 % para el bien común. Las reglas anteriores
     (MORA_7_10 y FIJA) se conservan para compatibilidad.
+    Si el socio ya tenía préstamos, el nuevo queda como su segundo préstamo (o
+    posterior) y el 100 % de sus intereses va al bien común desde la primera cuota.
     """
-    # Validar que el socio exista y esté activo
-    stmt_socio = select(Socio).where(Socio.id == prestamo_in.socio_id)
+    # Validar que el socio exista y esté activo (bloqueado: el orden del préstamo no se repite)
+    stmt_socio = select(Socio).where(Socio.id == prestamo_in.socio_id).with_for_update()
     socio = db.execute(stmt_socio).scalar_one_or_none()
 
     if not socio:
@@ -87,6 +89,8 @@ def create_prestamo(
         interes_mes = interes_mes.quantize(Decimal("0.01"))
     total_intereses = (interes_mes * prestamo_in.numero_cuotas).quantize(Decimal("0.01"))
     fecha_prestamo = prestamo_in.fecha_prestamo or date.today()
+    # Orden histórico de creación: 1 = primer préstamo del socio, 2 = segundo, ...
+    orden_socio = prestamos_creados_por_socio(db).get(socio.id, 0) + 1
 
     db_prestamo = Prestamo(
         socio_id=prestamo_in.socio_id,
@@ -101,11 +105,12 @@ def create_prestamo(
         estado=EstadoPrestamo.PENDIENTE.value,
         fecha_prestamo=fecha_prestamo,
         fecha_vencimiento=prestamo_in.fecha_vencimiento,
+        orden_socio=orden_socio,
     )
     db.add(db_prestamo)
     db.flush()
     db.refresh(db_prestamo)
-    if regla_reparto:
+    if regla_reparto or orden_socio >= 2:
         # Un préstamo con fecha pasada puede tener ya meses causados fuera del plazo.
         recalcular_prestamo(db, db_prestamo)
 
@@ -113,7 +118,10 @@ def create_prestamo(
         db=db,
         modulo="Préstamos",
         tipo_accion="CREAR",
-        descripcion=f"Préstamo #{db_prestamo.id} registrado para socio {socio.nombre} por ${db_prestamo.monto_prestado:,.2f}",
+        descripcion=(
+            f"Préstamo #{db_prestamo.id} registrado para socio {socio.nombre} por ${db_prestamo.monto_prestado:,.2f}"
+            + (" (segundo préstamo: intereses 100 % al bien común)" if orden_socio >= 2 else "")
+        ),
         entidad_tipo="Prestamo",
         entidad_id=db_prestamo.id,
         datos_nuevos=db_prestamo,
@@ -159,6 +167,8 @@ def vista_previa_abono(
     def pendiente(tasa: Decimal) -> Decimal:
         return max(CERO, interes_mensual(prestamo, max(tasa, previa), periodo.base) - periodo.pagado)
 
+    # Regla 7 % / 3 % o segundo préstamo (100 % bien común): se muestra el reparto del interés.
+    reparte_interes = es_regla_reparto(prestamo) or es_segundo_prestamo(prestamo)
     capital_otros = sum(
         (a.monto_capital for a in prestamo.abonos if excluir_abono_id is None or a.id != excluir_abono_id), CERO,
     )
@@ -190,8 +200,8 @@ def vista_previa_abono(
         cuota_nueva=next((p.numero_cuota for p in periodos if p.nueva), None),
         regla_interes=prestamo.regla_interes,
         capital_base=periodo.base,
-        interes_socio=periodo.interes_socio if es_regla_reparto(prestamo) else None,
-        interes_bien_comun=periodo.interes_bien_comun if es_regla_reparto(prestamo) else None,
+        interes_socio=periodo.interes_socio if reparte_interes else None,
+        interes_bien_comun=periodo.interes_bien_comun if reparte_interes else None,
     )
 
 
@@ -344,6 +354,9 @@ def editar_abono_prestamo(
         abono.monto_capital = monto_capital
         abono.monto_interes = monto_interes
         abono.numero_cuota = abono_in.numero_cuota or abono.numero_cuota
+        # Segundo préstamo: el interés corregido sigue yendo 100 % al bien común.
+        if es_segundo_prestamo(prestamo):
+            abono.interes_bien_comun = parte_bien_comun(prestamo, monto_interes)
     if abono_in.fecha_pago:
         abono.fecha_pago = fecha_a_datetime(abono_in.fecha_pago)
 
@@ -379,6 +392,15 @@ def list_prestamos(
 
     query = query.order_by(Prestamo.fecha_prestamo.desc(), Prestamo.id.desc()).offset(skip).limit(limit)
     return db.execute(query).scalars().all()
+
+
+@router.get("/conteo/por-socio", summary="Préstamos ya creados por cada socio (para identificar el segundo préstamo)")
+def get_conteo_prestamos_por_socio(
+    current_user: Annotated[Usuario, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+) -> dict[int, int]:
+    """Cuántos préstamos tiene cada socio en su historial (año actual y anteriores)."""
+    return prestamos_creados_por_socio(db)
 
 
 @router.get("/consolidado/global", summary="Consolidado global de préstamos y cartera por socio (RF9)")

@@ -3,6 +3,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.orm import Session
 
+from app.models.actividad_socio import ActividadSocio
 from app.models.finanzas import FinanzaSocio
 from app.models.historial import HistorialMovimiento
 from app.models.prestamo import Prestamo
@@ -33,7 +34,7 @@ def cambiar_id_socio(db: Session, socio: Socio, nuevo_id: int) -> Socio:
     db.execute(update(Socio).where(Socio.id == viejo_id).values(cedula=f"~mov{viejo_id}"[:20]),
                execution_options=sin_orm)
     db.execute(insert(Socio).values(**{**valores, "id": nuevo_id}))
-    for modelo in (FinanzaSocio, Prestamo):
+    for modelo in (FinanzaSocio, Prestamo, ActividadSocio):
         db.execute(update(modelo).where(modelo.socio_id == viejo_id).values(socio_id=nuevo_id),
                    execution_options=sin_orm)
     db.execute(

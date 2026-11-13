@@ -11,7 +11,7 @@ ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Sistema de Gestión Natillera API"
+    PROJECT_NAME: str = "Natillera Puerto Berrío API"
     API_V1_STR: str = "/api/v1"
     DEBUG: bool = False
     ENVIRONMENT: Literal["development", "test", "production"] = "production" if os.getenv("VERCEL") else "development"

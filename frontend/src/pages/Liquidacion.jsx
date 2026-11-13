@@ -26,7 +26,7 @@ export const Liquidacion = () => {
   const [vista, setVista] = useState("informe");
   const [control, setControl] = useState(null);
   const [controlError, setControlError] = useState(null);
-  const [pagoDialog, setPagoDialog] = useState(null); // { item, metodo }
+  const [pagoDialog, setPagoDialog] = useState(null); // { item }
   const [gestionItem, setGestionItem] = useState(null);
   const [fondoAbierto, setFondoAbierto] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -66,9 +66,9 @@ export const Liquidacion = () => {
 
   const controlPorSocio = new Map((control?.socios || []).map((item) => [item.socio_id, item]));
 
-  const abrirPago = (item, metodo) => {
+  const abrirPago = (item) => {
     setAccionError(null);
-    setPagoDialog({ item, metodo });
+    setPagoDialog({ item });
   };
 
   const abrirGestion = (item) => {
@@ -96,21 +96,12 @@ export const Liquidacion = () => {
   };
 
   const confirmarPago = async () => {
-    const { item, metodo } = pagoDialog;
+    const { item } = pagoDialog;
     const ok = await ejecutar(
-      () => api.post("/finanzas/liquidacion-anual/pagos", { anio, socio_id: item.socio_id, metodo_pago: metodo }),
-      "No se pudo registrar el pago.",
+      () => api.post("/finanzas/liquidacion-anual/pagos", { anio, socio_id: item.socio_id }),
+      "No se pudo marcar la liquidación.",
     );
     if (ok) setPagoDialog(null);
-  };
-
-  const cambiarMetodo = async (pago, metodo) => {
-    let actualizado = null;
-    const ok = await ejecutar(async () => {
-      const res = await api.put(`/finanzas/liquidacion-anual/pagos/${pago.id}`, { metodo_pago: metodo });
-      actualizado = res.data;
-    }, "No se pudo cambiar el método de pago.");
-    if (ok && actualizado) setGestionItem((prev) => (prev ? { ...prev, pago: actualizado } : prev));
   };
 
   const revertirPago = async (pago) => {
@@ -397,7 +388,7 @@ export const Liquidacion = () => {
                             <BotonesPago
                               item={itemControl}
                               isAdmin={isAdmin}
-                              onPagar={(item, metodo) => abrirPago({ ...item, total_neto_entregar: s.total_neto_entregar }, metodo)}
+                              onPagar={(item) => abrirPago({ ...item, total_neto_entregar: s.total_neto_entregar })}
                             />
                           </span>
                         </div>
@@ -441,7 +432,6 @@ export const Liquidacion = () => {
         busy={busy}
         error={accionError}
         onClose={() => setPagoDialog(null)}
-        onMetodo={(metodo) => setPagoDialog((prev) => ({ ...prev, metodo }))}
         onConfirm={confirmarPago}
       />
       <GestionDialog
@@ -449,7 +439,6 @@ export const Liquidacion = () => {
         busy={busy}
         error={accionError}
         onClose={() => setGestionItem(null)}
-        onCambiarMetodo={cambiarMetodo}
         onRevertir={revertirPago}
       />
       {fondoAbierto && (
