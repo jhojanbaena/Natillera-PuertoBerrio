@@ -28,7 +28,12 @@ const DESTINO_TEXTO = {
   AHORRO_PERSONAL: "Ahorro personal del socio (cuotas 1 a 3)",
   BIEN_COMUN: "Bien común (desde la cuota 4)",
   REPARTO_7_3: "7 % para el ahorro del socio y 3 % para el bien común",
+  BIEN_COMUN_SEGUNDO_PRESTAMO: "100 % al bien común (segundo préstamo del socio, desde la primera cuota)",
 };
+
+// Etiqueta del préstamo que se va a crear según los préstamos que ya tiene el socio.
+const ORDINALES = ["", "Primer", "Segundo", "Tercer", "Cuarto", "Quinto", "Sexto", "Séptimo", "Octavo", "Noveno", "Décimo"];
+const etiquetaOrden = (orden) => (ORDINALES[orden] ? `${ORDINALES[orden]} préstamo` : `Préstamo #${orden}`);
 
 // Préstamos con intereses mes a mes (regla 7 %/10 % anterior o regla 7 %/3 % vigente).
 const esMora = (p) => p?.regla_interes === REGLA_MORA || p?.regla_interes === REGLA_REPARTO;
@@ -57,6 +62,8 @@ const formAbonoInicial = () => ({
 export const Prestamos = () => {
   const [prestamos, setPrestamos] = useState([]);
   const [socios, setSocios] = useState([]);
+  // Préstamos ya creados por socio (historial completo): identifica el segundo préstamo.
+  const [conteoPrestamos, setConteoPrestamos] = useState({});
   const [consolidado, setConsolidado] = useState(null);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
@@ -82,11 +89,13 @@ export const Prestamos = () => {
   const fetchAll = async () => {
     try {
       setLoading(true);
-      const [presRes, socRes, conRes] = await Promise.all([
+      const [presRes, socRes, conRes, conteoRes] = await Promise.all([
         api.get("/prestamos"),
         api.get("/socios"),
         api.get("/prestamos/consolidado/global"),
+        api.get("/prestamos/conteo/por-socio"),
       ]);
+      setConteoPrestamos(conteoRes.data || {});
       setPrestamos(presRes.data);
       // Mantener al día el préstamo abierto en el modal de abono.
       setSelectedPrestamo((actual) => (actual ? presRes.data.find((p) => p.id === actual.id) || actual : actual));
@@ -170,6 +179,10 @@ export const Prestamos = () => {
     setEditingAbono(null);
     setVistaAbono(null);
   };
+
+  // Orden que tendrá el préstamo nuevo del socio elegido (2 o más = segundo préstamo).
+  const ordenNuevo = prestamoForm.socio_id ? Number(conteoPrestamos[prestamoForm.socio_id] || 0) + 1 : 0;
+  const esSegundoNuevo = ordenNuevo >= 2;
 
   const handleCreatePrestamo = async (e) => {
     e.preventDefault();
@@ -447,7 +460,14 @@ export const Prestamos = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-bold text-slate-800 text-sm">{getSocioNombre(p.socio_id)}</h4>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${estadoColor(p.estado)}`}>{ESTADO_TEXTO[p.estado] || p.estado}</span>
-                        {esReparto(p) ? (
+                        {p.es_segundo_prestamo ? (
+                          <span
+                            title="Segundo préstamo del socio: el 100 % de los intereses va al bien común desde la primera cuota"
+                            className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          >
+                            {etiquetaOrden(p.orden_socio)} · 100 % B. común
+                          </span>
+                        ) : esReparto(p) ? (
                           <span
                             title="10 % mensual sobre el capital pendiente: 7 % para el socio y 3 % para el bien común"
                             className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200"
@@ -598,7 +618,9 @@ export const Prestamos = () => {
                                     </span>
                                   </td>
                                   <td className="py-1.5 text-slate-500">
-                                    {m.destino === "REPARTO_7_3"
+                                    {m.destino === "BIEN_COMUN_SEGUNDO_PRESTAMO"
+                                      ? `B. común ${formatMoney(m.interes_bien_comun)} (100 %)`
+                                      : m.destino === "REPARTO_7_3"
                                       ? `Socio ${formatMoney(m.interes_socio)} · B. común ${formatMoney(m.interes_bien_comun)}`
                                       : m.destino === "BIEN_COMUN" ? "Bien común" : "Ahorro personal"}
                                   </td>
@@ -671,9 +693,14 @@ export const Prestamos = () => {
             <select required value={prestamoForm.socio_id} onChange={(e) => setPrestamoForm({ ...prestamoForm, socio_id: e.target.value })}
               className={inputClass}>
               <option value="">Seleccionar socio...</option>
-              {socios.filter(s => s.is_active).map(s => (
-                <option key={s.id} value={s.id}>{s.nombre} (CC: {s.cedula})</option>
-              ))}
+              {socios.filter(s => s.is_active).map(s => {
+                const previos = Number(conteoPrestamos[s.id] || 0);
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.nombre}{previos > 0 ? ` (${etiquetaOrden(previos + 1)})` : ""} (CC: {s.cedula})
+                  </option>
+                );
+              })}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -686,7 +713,9 @@ export const Prestamos = () => {
             </div>
             <div>
               <label className={labelClass}>Interés mensual</label>
-              <p className={`${inputClass} bg-slate-50 text-slate-700 font-semibold`}>10 % (7 % socio · 3 % bien común)</p>
+              <p className={`${inputClass} bg-slate-50 text-slate-700 font-semibold`}>
+                {esSegundoNuevo ? "10 % (100 % bien común)" : "10 % (7 % socio · 3 % bien común)"}
+              </p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -703,12 +732,23 @@ export const Prestamos = () => {
                 className={inputClass} />
             </div>
           </div>
+          {esSegundoNuevo && (
+            <p className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-xs text-emerald-800">
+              <strong>{etiquetaOrden(ordenNuevo)} de este socio:</strong> el 100 % de los intereses irá al bien común desde la primera cuota.
+            </p>
+          )}
           {prestamoForm.monto_prestado && (prestamoForm.regla_interes === REGLA_REPARTO ? (
             <div className="p-3 bg-purple-50 rounded-xl border border-purple-100 text-xs text-purple-800 space-y-0.5">
               <p className="font-bold">Estimación del primer mes:</p>
               <p>Interés total (10 %): <strong>{formatMoney(num(prestamoForm.monto_prestado) * 0.10)}</strong></p>
-              <p>Ganancia para el socio (7 %): <strong>{formatMoney(num(prestamoForm.monto_prestado) * 0.07)}</strong></p>
-              <p>Ganancia para el bien común (3 %): <strong>{formatMoney(num(prestamoForm.monto_prestado) * 0.03)}</strong></p>
+              {esSegundoNuevo ? (
+                <p>Ganancia para el bien común (100 %): <strong>{formatMoney(num(prestamoForm.monto_prestado) * 0.10)}</strong></p>
+              ) : (
+                <>
+                  <p>Ganancia para el socio (7 %): <strong>{formatMoney(num(prestamoForm.monto_prestado) * 0.07)}</strong></p>
+                  <p>Ganancia para el bien común (3 %): <strong>{formatMoney(num(prestamoForm.monto_prestado) * 0.03)}</strong></p>
+                </>
+              )}
               <p className="text-[11px] text-purple-600 pt-1">
                 Cada mes el 10 % se calcula sobre el capital pendiente y se sigue cobrando mientras quede capital por pagar.
                 La fecha límite de cada cuota es el mismo día del mes del desembolso.
@@ -820,7 +860,7 @@ export const Prestamos = () => {
                 {num(vistaAbono.interes_pagado) > 0 && (
                   <p>Ya pagado en esta cuota: <strong>{formatMoney(vistaAbono.interes_pagado)}</strong>{vistaAbono.tasa_elegida_previa ? ` (al ${pct(vistaAbono.tasa_elegida_previa)})` : ""}</p>
                 )}
-                {esReparto(selectedPrestamo) && (
+                {(esReparto(selectedPrestamo) || selectedPrestamo?.es_segundo_prestamo) && (
                   <p>
                     Capital del mes: <strong>{formatMoney(vistaAbono.capital_base)}</strong> · Interés del mes: <strong>{formatMoney(vistaAbono.interes_tasa_normal)}</strong>
                     {" "}(socio {formatMoney(vistaAbono.interes_socio)} · bien común {formatMoney(vistaAbono.interes_bien_comun)})

@@ -1,20 +1,17 @@
 """Esquemas Pydantic para el control de pagos de la Liquidación anual."""
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
-
-MetodoPago = Literal["EFECTIVO", "TRANSFERENCIA"]
 
 
 class LiquidacionPagoCreate(BaseModel):
+    """Botón "Ya se liquidó": solo indica que el socio recibió su liquidación.
+
+    No se registra método de pago (efectivo/transferencia).
+    """
     anio: int = Field(..., ge=2000, le=2100)
     socio_id: int = Field(..., ge=1)
-    metodo_pago: MetodoPago
-
-
-class LiquidacionPagoUpdate(BaseModel):
-    metodo_pago: MetodoPago
 
 
 class LiquidacionFondoUpdate(BaseModel):
@@ -28,7 +25,8 @@ class LiquidacionPagoResponse(BaseModel):
     socio_id: int
     nombre_socio: str
     monto: Decimal
-    metodo_pago: str
+    # Solo en pagos registrados antes del botón "Ya se liquidó" (histórico).
+    metodo_pago: Optional[str] = None
     fecha_pago: datetime
     usuario_nombre: Optional[str] = None
 

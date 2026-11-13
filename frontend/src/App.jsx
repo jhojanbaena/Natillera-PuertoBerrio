@@ -34,7 +34,7 @@ const pageTitles = {
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const path = window.location.pathname;
-  const title = pageTitles[path] || "Sistema Natillera";
+  const title = pageTitles[path] || "Natillera Puerto Berrío";
   const { periodo, listo, volverAlActivo } = usePeriodo();
 
   if (!listo) {
@@ -73,7 +73,7 @@ const Layout = ({ children }) => {
           {children}
         </main>
         <footer className="text-center py-4 text-[11px] text-slate-400 border-t border-slate-200/80">
-          Sistema de Gestión Integral Natillera · Backend: FastAPI + SQLAlchemy · Frontend: React + Tailwind CSS
+          Natillera Puerto Berrío · Backend: FastAPI + SQLAlchemy · Frontend: React + Tailwind CSS
         </footer>
       </div>
     </div>

@@ -1,9 +1,12 @@
 """Router de Contabilidad (/contabilidad): arqueo del dinero de la natillera.
 
-El dinero esperado siempre se calcula desde los registros del sistema:
-    liquidez en caja (capital total - cartera prestada, igual que el Dashboard)
+El dinero esperado siempre se calcula desde los registros del sistema, tomando
+como base el total de los fondos de la natillera (esté en caja o prestado):
+    capital total (aportes netos, multas, eventos e intereses)
     - gastos generales registrados
     - liquidaciones ya pagadas a los socios
+El dinero prestado NO se descuenta: sigue siendo parte de los fondos. Se informa
+aparte (cartera_prestada) solo como referencia.
 Las cuentas son las líneas editables; "GUARDAR REGISTRO" copia todo en tablas
 propias, por lo que el historial no cambia al editar o borrar cuentas.
 """
@@ -28,6 +31,8 @@ from app.services.historial_service import model_to_dict, registrar_movimiento
 
 router = APIRouter(prefix="/contabilidad", tags=["Contabilidad"])
 CERO = Decimal("0.00")
+# Base de cálculo vigente: total de fondos (caja + dinero prestado).
+BASE_TOTAL_FONDOS = "TOTAL_FONDOS"
 
 
 def calcular_dinero_esperado(db: Session) -> DesgloseEsperado:
@@ -40,7 +45,8 @@ def calcular_dinero_esperado(db: Session) -> DesgloseEsperado:
         liquidez_sistema=capital.liquidez_disponible_caja,
         gastos_generales=gastos,
         liquidaciones_pagadas=liquidaciones,
-        dinero_esperado=capital.liquidez_disponible_caja - gastos - liquidaciones,
+        dinero_esperado=capital.capital_total - gastos - liquidaciones,
+        base_calculo=BASE_TOTAL_FONDOS,
     )
 
 

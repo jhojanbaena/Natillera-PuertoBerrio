@@ -12,7 +12,6 @@ import {
   Scale,
   CalendarRange,
   LogOut, 
-  PiggyBank, 
   X 
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -58,11 +57,13 @@ export const Sidebar = ({ isOpen, onClose }) => {
         {/* Brand header */}
         <div className="flex items-center justify-between px-6 h-18 border-b border-slate-100">
           <div className="flex items-center gap-3 py-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-700 to-fuchsia-500 flex items-center justify-center text-white shadow-md shadow-purple-500/20">
-              <PiggyBank className="w-6 h-6" />
-            </div>
+            <img
+              src="/logo-natillera.jpg"
+              alt="Logo Natillera Puerto Berrío"
+              className="w-11 h-11 shrink-0 rounded-full object-cover shadow-md shadow-purple-500/20"
+            />
             <div>
-              <h1 className="font-bold text-purple-800 text-lg leading-tight">Natillera</h1>
+              <h1 className="font-bold text-purple-800 text-base leading-tight">Natillera Puerto Berrío</h1>
               <span className="text-[11px] font-semibold text-purple-600 uppercase tracking-wider">Gestión Integral</span>
             </div>
           </div>

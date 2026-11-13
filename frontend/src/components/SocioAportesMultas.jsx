@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
 import { RichTextDisplay } from "./RichTextField";
@@ -387,6 +387,303 @@ export const MultasSocio = ({ socio, onRegistrado }) => {
             );
           })}
         </ul>
+      )}
+    </Seccion>
+  );
+};
+
+// Actividades del socio: una línea por actividad. Se elige el tipo:
+// - "Rifa interna": se indica el mes; en la impresión va al lado de la cuota de ese mes.
+// - "Otra": se escribe el nombre; en la impresión va en la columna Actividad.
+const TIPOS_ACTIVIDAD = { RIFA_INTERNA: "Rifa interna", OTRA: "Otra" };
+
+const lineaDesde = (a) => ({
+  clave: `id-${a.id}`,
+  id: a.id,
+  tipo: a.tipo || "OTRA",
+  nombre: a.tipo === "RIFA_INTERNA" ? "" : a.nombre,
+  mes: a.mes == null ? "" : String(a.mes),
+  cantidad: a.cantidad_vendida == null ? "" : String(a.cantidad_vendida),
+  ganancia: String(a.ganancia ?? ""),
+});
+
+const etiquetaActividad = (l) =>
+  l.tipo === "RIFA_INTERNA" ? `Rifa interna${l.mes ? ` de ${MESES[Number(l.mes) - 1]}` : ""}` : l.nombre || "Actividad";
+
+let secuenciaActividad = 0;
+
+export const ActividadesSocio = ({ socio, onRegistrado }) => {
+  const [abierta, setAbierta] = useState(false);
+  const [borradores, setBorradores] = useState({});
+  const [nuevas, setNuevas] = useState([]);
+  const [guardando, setGuardando] = useState(null);
+
+  const guardadas = useMemo(() => (socio.actividades || []).map(lineaDesde), [socio.actividades]);
+  const lineas = [...guardadas.map((l) => ({ ...l, ...borradores[l.clave] })), ...nuevas];
+  const total = guardadas.reduce((suma, l) => suma + Number(l.ganancia || 0), 0);
+  const original = (clave) => guardadas.find((l) => l.clave === clave);
+  const sucia = (l) => {
+    if (l.id == null) return true;
+    const o = original(l.clave);
+    return !o || o.tipo !== l.tipo || o.nombre !== l.nombre || o.mes !== l.mes
+      || o.cantidad !== l.cantidad || Number(o.ganancia) !== Number(l.ganancia);
+  };
+
+  const editar = (l, campo, valor) => {
+    if (l.id == null) {
+      setNuevas((ns) => ns.map((n) => (n.clave === l.clave ? { ...n, [campo]: valor } : n)));
+    } else {
+      setBorradores((prev) => ({ ...prev, [l.clave]: { ...prev[l.clave], [campo]: valor } }));
+    }
+  };
+
+  const agregar = () => {
+    setAbierta(true);
+    setNuevas((ns) => [
+      ...ns,
+      { clave: `nueva-${++secuenciaActividad}`, id: null, tipo: "", nombre: "", mes: "", cantidad: "", ganancia: "" },
+    ]);
+  };
+
+  const quitarBorrador = (l) => {
+    if (l.id == null) setNuevas((ns) => ns.filter((n) => n.clave !== l.clave));
+    else setBorradores(({ [l.clave]: _omitido, ...resto }) => resto);
+  };
+
+  const guardar = async (l) => {
+    if (guardando) return;
+    if (!l.tipo) return alert("Elige el tipo de actividad: Rifa interna u Otra.");
+    if (l.tipo === "RIFA_INTERNA" && !l.mes) return alert("Elige el mes de la rifa interna.");
+    if (l.tipo === "OTRA" && !l.nombre.trim()) return alert("Escribe el nombre de la actividad.");
+    if (l.cantidad !== "" && !/^\d+$/.test(String(l.cantidad).trim())) return alert("La cantidad vendida debe ser un número entero.");
+    if (l.ganancia === "" || !(Number(l.ganancia) >= 0)) return alert("Escribe la ganancia (puede ser 0).");
+    const datos = {
+      tipo: l.tipo,
+      nombre: l.tipo === "OTRA" ? l.nombre.trim() : null,
+      mes: l.tipo === "RIFA_INTERNA" ? Number(l.mes) : null,
+      cantidad_vendida: l.cantidad === "" ? null : Number(l.cantidad),
+      ganancia: Number(l.ganancia).toFixed(2),
+    };
+    try {
+      setGuardando(l.clave);
+      if (l.id == null) await api.post(`/socios/${socio.id}/actividades`, datos);
+      else await api.put(`/socios/${socio.id}/actividades/${l.id}`, datos);
+      quitarBorrador(l);
+      await onRegistrado();
+    } catch (err) {
+      console.error(err);
+      alert(mensajeError(err, "No se pudo guardar la actividad."));
+    } finally {
+      setGuardando(null);
+    }
+  };
+
+  const eliminar = async (l) => {
+    if (l.id == null) return quitarBorrador(l);
+    const o = original(l.clave);
+    if (!window.confirm(`¿Eliminar "${etiquetaActividad(o)}" (${formatMoney(o.ganancia)})?`)) return;
+    try {
+      setGuardando(l.clave);
+      await api.delete(`/socios/${socio.id}/actividades/${l.id}`);
+      quitarBorrador(l);
+      await onRegistrado();
+    } catch (err) {
+      console.error(err);
+      alert(mensajeError(err, "No se pudo eliminar la actividad."));
+    } finally {
+      setGuardando(null);
+    }
+  };
+
+  return (
+    <Seccion
+      titulo="Actividades"
+      acento="text-sky-800"
+      abierta={abierta}
+      onToggle={() => setAbierta((v) => !v)}
+      resumen={
+        guardadas.length === 0
+          ? "Sin actividades registradas"
+          : `${guardadas.length} actividad${guardadas.length === 1 ? "" : "es"} · Ganancia ${formatMoney(total)}`
+      }
+    >
+      {lineas.length === 0 ? (
+        <p className="px-4 py-5 text-center text-xs text-slate-400">Este socio aún no tiene actividades registradas</p>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          <li className="hidden sm:grid grid-cols-[minmax(0,1fr)_90px_110px_64px] gap-3 px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/60">
+            <span>Actividad</span>
+            <span className="text-right">Cant. vendida</span>
+            <span className="text-right">Ganancia</span>
+            <span />
+          </li>
+          {lineas.map((l) => {
+            const pendiente = sucia(l);
+            const ocupado = guardando === l.clave;
+            const enter = (e) => { if (e.key === "Enter") { e.preventDefault(); guardar(l); } };
+            return (
+              <li
+                key={l.clave}
+                className={`grid grid-cols-[minmax(0,1fr)_64px] sm:grid-cols-[minmax(0,1fr)_90px_110px_64px] gap-x-3 gap-y-1 items-center px-4 py-2.5 text-xs ${
+                  pendiente ? "bg-amber-50" : ""
+                } ${ocupado ? "opacity-60 pointer-events-none" : ""}`}
+              >
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                  <select
+                    value={l.tipo}
+                    onChange={(e) => editar(l, "tipo", e.target.value)}
+                    aria-label="Tipo de actividad"
+                    className={`${inputClase} w-28 font-semibold text-slate-700`}
+                  >
+                    <option value="" disabled>Elegir tipo...</option>
+                    {Object.entries(TIPOS_ACTIVIDAD).map(([valor, texto]) => (
+                      <option key={valor} value={valor}>{texto}</option>
+                    ))}
+                  </select>
+                  {l.tipo === "OTRA" && (
+                    <input
+                      type="text"
+                      maxLength={150}
+                      value={l.nombre}
+                      onChange={(e) => editar(l, "nombre", e.target.value)}
+                      onKeyDown={enter}
+                      placeholder="Nombre de la actividad"
+                      aria-label="Nombre de la actividad"
+                      className={`${inputClase} flex-1 min-w-[8rem] font-semibold text-slate-800`}
+                    />
+                  )}
+                  {l.tipo === "RIFA_INTERNA" && (
+                    <select
+                      value={l.mes}
+                      onChange={(e) => editar(l, "mes", e.target.value)}
+                      aria-label="Mes de la rifa interna"
+                      className={`${inputClase} w-28 text-slate-700`}
+                    >
+                      <option value="" disabled>¿Qué mes?</option>
+                      {MESES.map((nombre, i) => (
+                        <option key={nombre} value={String(i + 1)}>{nombre}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <div className="flex items-center justify-end gap-1 sm:order-last">
+                  {pendiente && (
+                    <button type="button" onClick={() => guardar(l)} title="Guardar línea" aria-label="Guardar línea"
+                      className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white">
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button type="button" onClick={() => eliminar(l)} title="Eliminar línea" aria-label="Eliminar línea"
+                    className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <label className="flex items-center gap-1 text-slate-400 sm:justify-end">
+                  <span className="sm:hidden">Cant.</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={l.cantidad}
+                    onChange={(e) => editar(l, "cantidad", e.target.value.replace(/\D/g, ""))}
+                    onKeyDown={enter}
+                    placeholder="Opcional"
+                    aria-label="Cantidad vendida (opcional)"
+                    className={`${inputClase} w-20 text-right`}
+                  />
+                </label>
+                <label className="flex items-center gap-1 text-slate-400 sm:justify-end">
+                  $
+                  <MoneyInput
+                    value={l.ganancia}
+                    onChange={(e) => editar(l, "ganancia", e.target.value)}
+                    onKeyDown={enter}
+                    placeholder="0"
+                    aria-label="Ganancia"
+                    className={`${inputClase} w-24 text-right font-bold`}
+                  />
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="px-4 py-3 border-t border-slate-100">
+        <button
+          type="button"
+          onClick={agregar}
+          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 border-2 border-dashed border-sky-200 rounded-xl text-xs font-black text-sky-700 hover:bg-sky-50 transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" /> Agregar actividad
+        </button>
+        {lineas.some(sucia) && (
+          <p className="mt-2 text-[11px] text-amber-700">Hay líneas sin guardar: presiona ✓ o Enter para guardarlas.</p>
+        )}
+      </div>
+    </Seccion>
+  );
+};
+
+const ordinal = (orden) => (orden === 2 ? "segundo préstamo" : orden >= 3 ? `préstamo #${orden} del socio` : null);
+
+// Todas las obligaciones pendientes del socio (préstamos, intereses y multas), calculadas en el servidor.
+export const DeduccionesSocio = ({ socio }) => {
+  const [abierta, setAbierta] = useState(false);
+  const navigate = useNavigate();
+  const d = socio.deducciones || {};
+  const prestamos = d.prestamos || [];
+  const multas = d.multas || [];
+  const sinDeudas = prestamos.length === 0 && multas.length === 0;
+
+  return (
+    <Seccion
+      titulo="Deducciones"
+      acento="text-amber-800"
+      abierta={abierta}
+      onToggle={() => setAbierta((v) => !v)}
+      resumen={sinDeudas ? "Sin deudas pendientes" : `Total que debe: ${formatMoney(d.total_deducciones)}`}
+    >
+      {sinDeudas ? (
+        <p className="px-4 py-5 text-center text-xs text-slate-400">Este socio no tiene deudas pendientes</p>
+      ) : (
+        <>
+          <ul className="divide-y divide-slate-100">
+            {prestamos.map((p) => (
+              <li
+                key={`p-${p.prestamo_id}`}
+                onClick={() => navigate(`/prestamos?prestamo=${p.prestamo_id}`)}
+                title="Ver este préstamo en el apartado de Préstamos"
+                className="group flex items-start gap-3 px-4 py-2.5 text-xs cursor-pointer hover:bg-slate-50 transition-colors"
+              >
+                <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <span className="font-semibold text-slate-800">
+                    Préstamo #{p.prestamo_id}
+                    {ordinal(p.orden_socio) && <span className="font-normal text-slate-400"> ({ordinal(p.orden_socio)})</span>}
+                  </span>
+                  <span className="text-slate-500">Capital {formatMoney(p.capital_pendiente)}</span>
+                  <span className="text-slate-500">Intereses vencidos {formatMoney(p.intereses_pendientes)}</span>
+                </div>
+                <span className="shrink-0 font-bold text-slate-700">{formatMoney(p.total)}</span>
+                <ChevronRight className="w-4 h-4 shrink-0 text-slate-300 group-hover:text-amber-500" />
+              </li>
+            ))}
+            {multas.map((m) => (
+              <li key={`m-${m.multa_id}`} className="flex items-start gap-3 px-4 py-2.5 text-xs">
+                <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <span className="font-semibold text-slate-800">Multa</span>
+                  <RichTextDisplay value={m.descripcion || "Multa"} className="text-slate-500" />
+                  <span className="text-slate-400">Cargada {formatDate(m.fecha)}</span>
+                </div>
+                <span className="shrink-0 font-bold text-slate-700">{formatMoney(m.monto)}</span>
+              </li>
+            ))}
+          </ul>
+          <dl className="px-4 py-3 bg-amber-50 border-t border-amber-100 text-xs space-y-1">
+            <div className="flex justify-between"><dt className="text-slate-500">Capital de préstamos pendiente</dt><dd className="font-semibold">{formatMoney(d.total_capital_pendiente)}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">Intereses pendientes (cuotas vencidas)</dt><dd className="font-semibold">{formatMoney(d.total_intereses_pendientes)}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">Multas pendientes</dt><dd className="font-semibold">{formatMoney(d.total_multas_pendientes)}</dd></div>
+            <div className="flex justify-between border-t border-amber-100 pt-1"><dt className="font-bold text-amber-800">Total que debe</dt><dd className="font-black text-amber-800">{formatMoney(d.total_deducciones)}</dd></div>
+          </dl>
+        </>
       )}
     </Seccion>
   );

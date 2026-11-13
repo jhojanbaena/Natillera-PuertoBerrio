@@ -2,7 +2,8 @@
 
 Reglas:
 - El neto a pagar SIEMPRE lo calcula el backend con FinanzasService.calcular_liquidacion_anual
-  (las fórmulas no cambian); el cliente solo indica socio, año y método de pago.
+  (las fórmulas no cambian); el cliente solo indica socio y año ("Ya se liquidó").
+  No se registra método de pago: solo que la liquidación ya se realizó.
 - El dinero general del año vive en liquidacion_fondos. Su fila se bloquea con
   SELECT ... FOR UPDATE en cada pago, reversión o ajuste, de modo que dos operaciones
   simultáneas del mismo año se ejecutan una detrás de otra.
@@ -29,7 +30,6 @@ from app.schemas.liquidacion_pago import (
     LiquidacionFondoUpdate,
     LiquidacionPagoCreate,
     LiquidacionPagoResponse,
-    LiquidacionPagoUpdate,
 )
 from app.services.finanzas_service import FinanzasService
 from app.services.historial_service import registrar_movimiento
@@ -125,7 +125,7 @@ def get_control_liquidacion(
 
 
 @router.post("/pagos", response_model=LiquidacionPagoResponse, status_code=status.HTTP_201_CREATED,
-             summary="Registrar el pago de la liquidación de un socio")
+             summary="Ya se liquidó: marcar que el socio recibió su liquidación")
 def registrar_pago_liquidacion(
     pago_in: LiquidacionPagoCreate,
     current_user: Annotated[Usuario, Depends(get_current_active_admin)],
@@ -164,7 +164,7 @@ def registrar_pago_liquidacion(
         socio_id=socio.socio_id,
         nombre_socio=socio.nombre,
         monto=socio.total_neto_entregar,
-        metodo_pago=pago_in.metodo_pago,
+        metodo_pago=None,
         usuario_nombre=current_user.nombre_completo or current_user.username,
     )
     db.add(pago)
@@ -175,35 +175,11 @@ def registrar_pago_liquidacion(
         raise HTTPException(status_code=409, detail="Este socio ya fue liquidado")
     registrar_movimiento(
         db, MODULO, "CREAR",
-        f"Liquidación {pago.anio} pagada a {pago.nombre_socio} por ${pago.monto:,.2f} ({pago.metodo_pago.lower()})",
+        f"Liquidación {pago.anio} de {pago.nombre_socio} marcada como liquidada (${pago.monto:,.2f})",
         "LiquidacionPago", pago.id, datos_nuevos=pago, usuario=current_user,
     )
     _commit(db, "Este socio ya fue liquidado")
     db.refresh(pago)
-    return pago
-
-
-@router.put("/pagos/{pago_id}", response_model=LiquidacionPagoResponse, summary="Cambiar el método de pago de una liquidación")
-def actualizar_metodo_pago(
-    pago_id: int,
-    pago_in: LiquidacionPagoUpdate,
-    current_user: Annotated[Usuario, Depends(get_current_active_admin)],
-    db: Session = Depends(get_db),
-) -> LiquidacionPago:
-    pago = db.execute(select(LiquidacionPago).where(LiquidacionPago.id == pago_id).with_for_update()).scalar_one_or_none()
-    if pago is None:
-        raise HTTPException(status_code=404, detail="Pago de liquidación no encontrado")
-    if pago.metodo_pago != pago_in.metodo_pago:
-        anterior = pago.metodo_pago
-        pago.metodo_pago = pago_in.metodo_pago
-        registrar_movimiento(
-            db, MODULO, "EDITAR",
-            f"Método de pago de la liquidación {pago.anio} de {pago.nombre_socio}: {anterior.lower()} → {pago.metodo_pago.lower()}",
-            "LiquidacionPago", pago.id, datos_previos={"metodo_pago": anterior},
-            datos_nuevos={"metodo_pago": pago.metodo_pago}, usuario=current_user,
-        )
-        _commit(db, "No se pudo actualizar el pago")
-        db.refresh(pago)
     return pago
 
 

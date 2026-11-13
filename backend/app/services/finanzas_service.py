@@ -11,6 +11,7 @@ from app.models.socio import Socio
 from app.models.gastos import GastoGeneral
 from app.models.finanzas import FinanzaSocio, TipoMovimientoFinanciero
 from app.models.actividad import Actividad
+from app.models.actividad_socio import ActividadSocio, TipoActividadSocio
 from app.models.rifa import Rifa
 from app.models.reunion import Reunion
 from app.models.prestamo import Prestamo, AbonoPrestamo, EstadoPrestamo, ESTADOS_CERRADOS
@@ -414,3 +415,179 @@ class FinanzasService:
                 anios.append(valor.year)
         desde = min(min(anios, default=actual), actual)
         return list(range(actual, desde - 1, -1))
+
+
+def calcular_total_ahorrado_socio(db: Session, socio_id: int) -> dict[str, Decimal | bool]:
+    """Total ahorrado por un socio: ahorros y beneficios acumulados, sin duplicados.
+
+    Toma los registros reales del año que se consulta (cada año guarda sus datos):
+    - aportes_mensuales: aportes menos retiros de ahorro (igual que el recuadro
+      "Aportes mensuales").
+    - ganancias_intereses: parte del socio de los intereses de sus préstamos
+      (7 % de la regla 7 % / 3 %; cuotas 1 a 3 en préstamos anteriores; $0 en el
+      segundo préstamo, cuyo interés es 100 % del bien común).
+    - ganancias_actividades: suma de las líneas "Otra" del apartado Actividades del
+      socio (lo que él mismo vendió o ganó en cada actividad).
+    - ganancias_rifa_interna: suma de las líneas "Rifa interna" del socio.
+    - ganancias de rifas grandes/pequeñas y de reuniones: se reparten entre los
+      socios activos en proporción a su ahorro (aportes + intereses), igual que la
+      liquidación anual. Las rifas internas del apartado Eventos no se suman aquí:
+      lo que gana cada socio en ellas se registra en sus líneas de rifa interna.
+    - bien_comun: parte igual del bien común (multas pagadas e intereses del bien
+      común) entre los socios activos, igual que el apartado Bien común.
+    Cada peso se cuenta una sola vez: el interés del bien común no suma también
+    como interés del socio, y las ganancias de eventos se reparten una vez.
+    """
+    cero = Decimal("0.00")
+    movimientos = _por_socio(db.execute(
+        select(FinanzaSocio.socio_id, FinanzaSocio.tipo_movimiento, func.sum(FinanzaSocio.monto))
+        .where(FinanzaSocio.tipo_movimiento.in_([
+            TipoMovimientoFinanciero.APORTE.value, TipoMovimientoFinanciero.RETIRO_AHORRO.value,
+        ]))
+        .group_by(FinanzaSocio.socio_id, FinanzaSocio.tipo_movimiento)
+    ).all())
+    intereses = dict(db.execute(
+        select(Prestamo.socio_id, func.sum(INTERES_SOCIO))
+        .join(AbonoPrestamo, AbonoPrestamo.prestamo_id == Prestamo.id)
+        .group_by(Prestamo.socio_id)
+    ).all())
+    socios = db.execute(select(Socio).order_by(Socio.nombre.asc(), Socio.id.asc())).scalars().all()
+
+    def aportes_de(sid: int) -> Decimal:
+        mov = movimientos.get(sid, {})
+        return max(cero, mov.get(TipoMovimientoFinanciero.APORTE.value, cero)
+                   - mov.get(TipoMovimientoFinanciero.RETIRO_AHORRO.value, cero))
+
+    pesos = [
+        (aportes_de(s.id) + (intereses.get(s.id) or cero)) if s.is_active else cero
+        for s in socios
+    ]
+    indice = next((i for i, s in enumerate(socios) if s.id == socio_id), None)
+
+    def parte(total: Decimal) -> Decimal:
+        if indice is None:
+            return cero
+        return repartir_importe(total, pesos)[indice]
+
+    lineas = dict(db.execute(
+        select(ActividadSocio.tipo, func.sum(ActividadSocio.ganancia))
+        .where(ActividadSocio.socio_id == socio_id)
+        .group_by(ActividadSocio.tipo)
+    ).all())
+    total_rifas = db.execute(
+        select(func.coalesce(func.sum(Rifa.ganancias_totales), cero)).where(Rifa.tipo != "INTERNA")
+    ).scalar_one()
+    total_reuniones = db.execute(select(func.coalesce(func.sum(Reunion.ganancias_reunion), cero))).scalar_one()
+    bien_comun = next(
+        (item.participacion for item in FinanzasService.calcular_bien_comun(db).socios if item.id == socio_id), cero,
+    )
+    datos = {
+        "aportes_mensuales": aportes_de(socio_id),
+        "ganancias_intereses": intereses.get(socio_id) or cero,
+        "ganancias_actividades": lineas.get(TipoActividadSocio.OTRA) or cero,
+        "ganancias_rifa_interna": lineas.get(TipoActividadSocio.RIFA_INTERNA) or cero,
+        "ganancias_rifas": parte(total_rifas),
+        "ganancias_reuniones": parte(total_reuniones),
+        "bien_comun": bien_comun,
+    }
+    datos["total"] = sum(datos.values(), cero)
+    datos["activo"] = bool(indice is not None and socios[indice].is_active)
+    return datos
+
+
+def _partes_por_item(total_socio: Decimal, montos: list[Decimal], pesos: list[Decimal], indice: Optional[int]) -> list[Decimal]:
+    """Parte del socio en cada registro, ajustada para sumar exactamente su total.
+
+    Repartir registro por registro puede diferir en centavos del reparto del total;
+    la diferencia se asigna al registro de mayor valor para no descuadrar.
+    """
+    cero = Decimal("0.00")
+    if indice is None or not montos:
+        return [cero for _ in montos]
+    partes = [repartir_importe(monto, pesos)[indice] for monto in montos]
+    diferencia = total_socio - sum(partes, cero)
+    if diferencia:
+        mayor = max(range(len(montos)), key=lambda i: abs(montos[i]))
+        partes[mayor] += diferencia
+    return partes
+
+
+def detalle_impresion_socio(db: Session, socio_id: int, deducciones) -> dict:
+    """Datos de la hoja imprimible del socio (estilo de la planilla en papel).
+
+    Usa los mismos totales del recuadro "Total ahorrado" y de "Deducciones":
+    solo los separa por mes y por registro, sin volver a sumar nada.
+    """
+    cero = Decimal("0.00")
+    anio = anio_del_periodo(db)
+    totales = calcular_total_ahorrado_socio(db, socio_id)
+
+    # Orden de socios igual al de la liquidación (para repartir los gastos generales).
+    socios = db.execute(select(Socio).order_by(Socio.nombre.asc(), Socio.id.asc())).scalars().all()
+    indice = next((i for i, s in enumerate(socios) if s.id == socio_id), None)
+    activo = bool(indice is not None and socios[indice].is_active)
+
+    def mes_de(valor) -> Optional[int]:
+        fecha = valor
+        if isinstance(fecha, datetime):
+            if fecha.tzinfo is None:
+                fecha = fecha.replace(tzinfo=timezone.utc)
+            fecha = fecha.astimezone(ZONA_COLOMBIA).date()
+        return fecha.month if fecha and fecha.year == anio else None
+
+    # Cuotas (aportes) por mes del año.
+    meses = {m: {"cuota": cero, "rifa_interna": cero} for m in range(1, 13)}
+    otros_aportes = cero
+    retiros = cero
+    for mov in db.execute(select(FinanzaSocio).where(FinanzaSocio.socio_id == socio_id)).scalars():
+        if mov.tipo_movimiento == TipoMovimientoFinanciero.RETIRO_AHORRO.value:
+            retiros += mov.monto
+            continue
+        if mov.tipo_movimiento != TipoMovimientoFinanciero.APORTE.value:
+            continue
+        mes = None
+        if mov.periodo and mov.periodo[:4] == str(anio):
+            mes = int(mov.periodo[5:7])
+        elif not mov.periodo:
+            mes = mes_de(mov.fecha)
+        if mes:
+            meses[mes]["cuota"] += mov.monto
+        else:
+            otros_aportes += mov.monto
+
+    # Líneas del apartado Actividades del socio: las rifas internas van en su mes
+    # (columna R. interna, al lado de la cuota) y las demás en la columna Actividad.
+    lista_actividades = []
+    for a in db.execute(
+        select(ActividadSocio).where(ActividadSocio.socio_id == socio_id).order_by(ActividadSocio.id.asc())
+    ).scalars():
+        if a.tipo == TipoActividadSocio.RIFA_INTERNA and a.mes in meses:
+            meses[a.mes]["rifa_interna"] += a.ganancia
+        else:
+            lista_actividades.append({"nombre": a.nombre, "cantidad_vendida": a.cantidad_vendida, "ganancia": a.ganancia})
+
+    # Deducciones: deudas pendientes + parte del socio en los gastos generales del año.
+    gastos = db.execute(
+        select(GastoGeneral).where(GastoGeneral.anio == anio).order_by(GastoGeneral.id.asc())
+    ).scalars().all()
+    pesos_gastos = [Decimal("1") if s.is_active else cero for s in socios]
+    total_gasto_socio = (
+        repartir_importe(total_gastos_generales(db, anio), pesos_gastos)[indice] if activo else cero
+    )
+    partes_gastos = _partes_por_item(total_gasto_socio, [g.monto for g in gastos], pesos_gastos, indice if activo else None)
+    filas_deducciones = [
+        {"concepto": "Préstamos", "valor": deducciones.total_capital_pendiente},
+        {"concepto": "Intereses", "valor": deducciones.total_intereses_pendientes},
+        {"concepto": "Multas", "valor": deducciones.total_multas_pendientes},
+    ] + [{"concepto": g.descripcion, "valor": parte} for g, parte in zip(gastos, partes_gastos)]
+
+    return {
+        "anio": anio,
+        "meses": [{"mes": m, **valores} for m, valores in meses.items()],
+        "otros_aportes": otros_aportes,
+        "retiros": retiros,
+        "actividades": lista_actividades,
+        "deducciones": filas_deducciones,
+        "total_deducciones": sum((f["valor"] for f in filas_deducciones), cero),
+        "total_ahorrado": totales,
+    }

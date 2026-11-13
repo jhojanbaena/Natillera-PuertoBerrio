@@ -20,6 +20,12 @@ superado el número de cuotas pactado o el socio ya haya hecho abonos; cuando el
 capital llega a $0 dejan de causarse. Cada peso de interés cobrado se reparte:
 7/10 para el ahorro personal del socio y 3/10 para el bien común (se guarda en
 el abono). El pago de intereses y el de capital siempre van separados.
+
+Regla del segundo préstamo: desde el segundo préstamo de un socio (según el orden
+histórico en que se crearon sus préstamos, `orden_socio` >= 2), el 100 % de los
+intereses cobrados va al bien común desde la primera cuota, sin importar la regla
+de tasa. Los préstamos creados antes de esta regla (`orden_socio` NULL) y los
+primeros préstamos conservan su distribución original.
 """
 import calendar
 from dataclasses import dataclass
@@ -39,6 +45,8 @@ TASA_REPARTO = Decimal("10.00")
 TASA_SOCIO = Decimal("7.00")
 TASA_BIEN_COMUN = Decimal("3.00")
 DESTINO_REPARTO = "REPARTO_7_3"
+# Segundo préstamo (o posterior) del socio: todo el interés al bien común.
+DESTINO_SEGUNDO_PRESTAMO = "BIEN_COMUN_SEGUNDO_PRESTAMO"
 # Tope de seguridad de meses causados por préstamo (50 años).
 MAX_MESES_INTERES = 600
 # Desde esta cuota los intereses van al bien común.
@@ -145,7 +153,7 @@ def recalcular_prestamo(db: Session, prestamo: Prestamo) -> None:
         func.count(AbonoPrestamo.id),
     ).where(AbonoPrestamo.prestamo_id == prestamo.id)).one()
     prestamo.saldo_pendiente = max(CERO, prestamo.monto_prestado - capital)
-    if es_regla_reparto(prestamo):
+    if es_regla_reparto(prestamo) or es_segundo_prestamo(prestamo):
         for abono in prestamo.abonos:
             abono.interes_bien_comun = parte_bien_comun(prestamo, abono.monto_interes)
     if es_regla_mora(prestamo):
@@ -207,6 +215,11 @@ def es_regla_reparto(prestamo: Prestamo) -> bool:
     return getattr(prestamo, "regla_interes", None) == ReglaInteres.REPARTO_7_3.value
 
 
+def es_segundo_prestamo(prestamo: Prestamo) -> bool:
+    """Segundo préstamo (o posterior) del socio según el orden histórico de creación."""
+    return (getattr(prestamo, "orden_socio", None) or 0) >= 2
+
+
 def tasa_mora_de(prestamo: Prestamo) -> Decimal:
     if es_regla_reparto(prestamo):
         # En la regla 7 % / 3 % no hay tasa de mora: siempre es el 10 %.
@@ -223,8 +236,11 @@ def interes_mensual(prestamo: Prestamo, tasa: Decimal, base: Optional[Decimal] =
 def parte_bien_comun(prestamo: Prestamo, monto_interes: Decimal) -> Optional[Decimal]:
     """Porción del interés cobrado que va al bien común (3 de cada 10 pesos).
 
+    Segundo préstamo del socio: todo el interés, desde la primera cuota.
     Devuelve None en reglas anteriores, que conservan la clasificación por cuota.
     """
+    if es_segundo_prestamo(prestamo):
+        return monto_interes or CERO
     if not es_regla_reparto(prestamo):
         return None
     tasa = prestamo.tasa_interes or TASA_REPARTO
@@ -243,7 +259,9 @@ def fecha_local(valor) -> date:
     return valor
 
 
-def destino_interes(numero_cuota: int) -> str:
+def destino_interes(numero_cuota: int, prestamo: Optional[Prestamo] = None) -> str:
+    if prestamo is not None and es_segundo_prestamo(prestamo):
+        return DESTINO_SEGUNDO_PRESTAMO
     return "BIEN_COMUN" if numero_cuota >= CUOTA_BIEN_COMUN else "AHORRO_PERSONAL"
 
 
@@ -282,6 +300,8 @@ class PeriodoInteres:
     @property
     def interes_bien_comun(self) -> Decimal:
         """Parte del interés del mes que va al bien común."""
+        if self.destino == DESTINO_SEGUNDO_PRESTAMO:
+            return self.valor
         if self.destino == DESTINO_REPARTO:
             if self.tasa <= 0:
                 return CERO
@@ -358,7 +378,7 @@ def periodos_interes(
             indice=indice, numero_cuota=indice, fecha_limite=limite, tasa=tasa,
             tasa_elegida=elegida, valor=valor, pagado=pagado,
             pendiente=max(CERO, valor - pagado), vencido=vencido,
-            destino=destino_interes(indice), base=base, inicio=inicio,
+            destino=destino_interes(indice, prestamo), base=base, inicio=inicio,
         )
 
     periodos = [periodo(indice) for indice in range(1, meses + 1)]
@@ -412,7 +432,8 @@ def _periodos_reparto(
             indice=indice, numero_cuota=indice, fecha_limite=limite, tasa=tasa,
             tasa_elegida=tasa if pagado > 0 else None, valor=valor, pagado=pagado,
             pendiente=max(CERO, valor - pagado), vencido=limite < hoy,
-            destino=DESTINO_REPARTO, base=base, inicio=inicio,
+            destino=DESTINO_SEGUNDO_PRESTAMO if es_segundo_prestamo(prestamo) else DESTINO_REPARTO,
+            base=base, inicio=inicio,
         )
 
     periodos = []
@@ -522,3 +543,48 @@ def calcular_abono_mora(
         fecha_limite=periodo.fecha_limite,
         dias_retraso=dias,
     )
+
+
+# ---------------------------------------------------------------------------
+# Orden histórico de los préstamos de cada socio
+# ---------------------------------------------------------------------------
+
+def prestamos_creados_por_socio(db: Session) -> dict[int, int]:
+    """Cuántos préstamos se le han creado a cada socio, en orden histórico.
+
+    Cuenta los préstamos del año que se consulta y los de los años anteriores
+    (cada año guarda sus datos aparte; el socio se reconoce por su cédula).
+    """
+    from app.models.socio import Socio
+
+    conteo: dict[int, int] = {
+        socio_id: total for socio_id, total in db.execute(
+            select(Prestamo.socio_id, func.count(Prestamo.id)).group_by(Prestamo.socio_id)
+        ).all()
+    }
+    base = db.info.get("motor_base")
+    anio = db.info.get("periodo_anio")
+    if base is None or anio is None:
+        return conteo
+    from app.core.periodos import leer_periodos, motor_periodo
+
+    anteriores = [p for p in leer_periodos(base) if p["anio"] < anio and p.get("id")]
+    if not anteriores:
+        return conteo
+    por_cedula = {cedula: socio_id for socio_id, cedula in db.execute(select(Socio.id, Socio.cedula)).all()}
+    s, p_tabla = Socio.__table__, Prestamo.__table__
+    for periodo in anteriores:
+        try:
+            with motor_periodo(base, periodo["esquema"]).connect() as conn:
+                filas = conn.execute(
+                    select(s.c.cedula, func.count(p_tabla.c.id))
+                    .join(p_tabla, p_tabla.c.socio_id == s.c.id)
+                    .group_by(s.c.cedula)
+                ).all()
+        except Exception:  # Año sin tablas accesibles: no aporta préstamos.
+            continue
+        for cedula, total in filas:
+            socio_id = por_cedula.get(cedula)
+            if socio_id is not None:
+                conteo[socio_id] = conteo.get(socio_id, 0) + total
+    return conteo

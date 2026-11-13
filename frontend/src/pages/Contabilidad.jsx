@@ -48,9 +48,9 @@ const fechaHora = (valor) => new Date(valor).toLocaleString("es-CO", {
   year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
 });
 
+// Base de cálculo: total de fondos (caja + dinero prestado). El dinero prestado no se descuenta.
 const ETIQUETAS_DESGLOSE = [
   ["capital_total", "Capital total registrado (aportes netos, multas, eventos e intereses)", 1],
-  ["cartera_prestada", "Dinero prestado (capital pendiente de préstamos)", -1],
   ["gastos_generales", "Gastos generales registrados", -1],
   ["liquidaciones_pagadas", "Liquidaciones ya pagadas a socios", -1],
 ];
@@ -152,15 +152,15 @@ export const Contabilidad = () => {
         </div>
       ) : actual && (
         <>
-          {/* 3.1 Dinero total en caja (calculado desde los registros del sistema) */}
+          {/* 3.1 Dinero total de los fondos (calculado desde los registros del sistema) */}
           <div className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-2xl p-6 text-white shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
               <div>
                 <p className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <Landmark className="w-4 h-4" /> Dinero total en caja
+                  <Landmark className="w-4 h-4" /> Dinero total de los fondos
                 </p>
                 <p className="text-4xl md:text-5xl font-black mt-1">{formatMoney(actual.dinero_esperado)}</p>
-                <p className="text-xs text-slate-300 mt-1">Según los registros financieros del sistema</p>
+                <p className="text-xs text-slate-300 mt-1">Según los registros financieros del sistema (en caja y prestado)</p>
               </div>
               <button
                 type="button"
@@ -182,6 +182,9 @@ export const Contabilidad = () => {
                   <span className="font-bold">= Dinero que debería existir</span>
                   <span className="font-black whitespace-nowrap">{formatMoney(actual.desglose.dinero_esperado)}</span>
                 </div>
+                <p className="text-xs text-slate-300 pt-1">
+                  Incluye el dinero prestado ({formatMoney(actual.desglose.cartera_prestada)}): sigue siendo parte de los fondos y no se descuenta.
+                </p>
               </div>
             )}
           </div>
@@ -321,7 +324,9 @@ export const Contabilidad = () => {
                             </table>
                             {r.desglose_esperado && (
                               <p className="text-[11px] text-slate-400">
-                                Esperado al guardar: capital {formatMoney(r.desglose_esperado.capital_total)} − prestado {formatMoney(r.desglose_esperado.cartera_prestada)}
+                                Esperado al guardar: capital {formatMoney(r.desglose_esperado.capital_total)}
+                                {/* Registros anteriores al cambio descontaban el dinero prestado: se muestran como se guardaron. */}
+                                {r.desglose_esperado.base_calculo !== "TOTAL_FONDOS" && <> − prestado {formatMoney(r.desglose_esperado.cartera_prestada)}</>}
                                 {" "}− gastos {formatMoney(r.desglose_esperado.gastos_generales)} − liquidaciones {formatMoney(r.desglose_esperado.liquidaciones_pagadas)}
                               </p>
                             )}

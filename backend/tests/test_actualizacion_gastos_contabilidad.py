@@ -234,7 +234,7 @@ def test_gastos_generales_se_reparten_entre_socios_activos_y_se_descuentan(clien
     assert all(D(s["gastos_generales"]) == 125000 for s in liq["socios_liquidados"])
 
     # El pago de la liquidación usa el neto con el descuento.
-    r = client.post(f"{API}/finanzas/liquidacion-anual/pagos", json={"anio": anio, "socio_id": ids[0], "metodo_pago": "EFECTIVO"})
+    r = client.post(f"{API}/finanzas/liquidacion-anual/pagos", json={"anio": anio, "socio_id": ids[0]})
     assert r.status_code == 201, r.text
     assert D(r.json()["monto"]) == 1875000
 
@@ -307,7 +307,7 @@ def test_contabilidad_compara_cuentas_con_dinero_del_sistema_y_conserva_registro
     assert [h["id"] for h in historial] == [reg2["id"], reg1["id"]]
 
 
-def test_contabilidad_descuenta_prestamos_gastos_y_liquidaciones(client, socio):
+def test_contabilidad_usa_total_de_fondos_sin_descontar_prestamos(client, socio):
     anio = hoy_colombia().year
     client.post(f"{API}/socios/{socio['id']}/movimientos", json={"tipo_movimiento": "APORTE", "monto": "5000000"})
     client.post(f"{API}/prestamos", json={
@@ -316,11 +316,13 @@ def test_contabilidad_descuenta_prestamos_gastos_y_liquidaciones(client, socio):
     })
     client.post(f"{API}/gastos-generales", json={"descripcion": "Papelería", "monto": "200000"})
     d = client.get(f"{API}/contabilidad").json()["desglose"]
+    # El dinero prestado sigue siendo parte de los fondos: no se descuenta.
     assert D(d["cartera_prestada"]) == 1000000
-    assert D(d["dinero_esperado"]) == 5000000 - 1000000 - 200000
+    assert d["base_calculo"] == "TOTAL_FONDOS"
+    assert D(d["dinero_esperado"]) == D(d["capital_total"]) - 200000 == 5000000 - 200000
     assert D(d["liquidaciones_pagadas"]) == 0
     # Al pagar una liquidación ese dinero sale de caja.
-    r = client.post(f"{API}/finanzas/liquidacion-anual/pagos", json={"anio": anio, "socio_id": socio["id"], "metodo_pago": "EFECTIVO"})
+    r = client.post(f"{API}/finanzas/liquidacion-anual/pagos", json={"anio": anio, "socio_id": socio["id"]})
     assert r.status_code == 201, r.text
     pagado = D(r.json()["monto"])
     d2 = client.get(f"{API}/contabilidad").json()["desglose"]
