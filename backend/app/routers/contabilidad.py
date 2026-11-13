@@ -190,6 +190,10 @@ def guardar_registro(
         ],
     )
     db.add(registro)
+    # Tras copiar el registro, las cuentas se conservan pero sus valores vuelven a 0
+    # para empezar el siguiente conteo desde cero (el registro guardado no cambia).
+    for c in cuentas:
+        c.valor = CERO
     db.flush()
     registrar_movimiento(
         db=db, modulo="Contabilidad", tipo_accion="REGISTRAR",

@@ -1,6 +1,7 @@
 import React from "react";
 import { Menu, ShieldCheck, RefreshCw, CalendarRange } from "lucide-react";
 import { usePeriodo } from "../context/PeriodoContext";
+import { ThemeToggle } from "./ThemeToggle";
 
 export const Navbar = ({ onOpenSidebar, onRefresh, isRefreshing, title = "Sistema Natillera" }) => {
   const { periodo } = usePeriodo();
@@ -44,6 +45,7 @@ export const Navbar = ({ onOpenSidebar, onRefresh, isRefreshing, title = "Sistem
           <ShieldCheck className="w-3.5 h-3.5" />
           <span>Servidor Conectado</span>
         </div>
+        <ThemeToggle />
       </div>
     </header>
   );

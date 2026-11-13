@@ -28,10 +28,17 @@ const ESTADOS = {
     chip: "bg-amber-100 text-amber-800",
     Icono: TrendingUp,
   },
+  // Cuentas en 0 (por ejemplo, justo después de GUARDAR REGISTRO): aún no hay conteo.
+  SIN_VALORES: {
+    titulo: "SIN VALORES REGISTRADOS",
+    caja: "bg-slate-50 border-slate-200 text-slate-700",
+    chip: "bg-slate-100 text-slate-700",
+    Icono: Info,
+  },
 };
 
 const textoResultado = (resultado, diferencia) => {
-  if (resultado === "CUADRADA") return ESTADOS.CUADRADA.titulo;
+  if (resultado === "CUADRADA" || resultado === "SIN_VALORES") return ESTADOS[resultado].titulo;
   return `${ESTADOS[resultado]?.titulo || resultado} DE ${formatMoney(Math.abs(num(diferencia)))}`;
 };
 
@@ -86,8 +93,13 @@ export const Contabilidad = () => {
       alert("Agrega al menos una cuenta antes de guardar el registro.");
       return;
     }
+    if (num(actual.total_cuentas) === 0) {
+      alert("Escribe los valores de las cuentas antes de guardar el registro.");
+      return;
+    }
     if (!window.confirm(
       `¿Guardar el registro contable de este momento?\n\n` +
+      `Después de guardar, las cuentas se mantienen pero sus valores vuelven a 0.\n\n` +
       `Dinero que debería existir: ${formatMoney(actual.dinero_esperado)}\n` +
       `Dinero en cuentas: ${formatMoney(actual.total_cuentas)}\n` +
       `Resultado: ${textoResultado(actual.resultado, actual.diferencia)}`
@@ -111,8 +123,9 @@ export const Contabilidad = () => {
   const totalVivo = lineasVivas
     ? Math.round(lineasVivas.reduce((s, l) => s + (Number.isFinite(num(l.valor)) ? num(l.valor) : 0), 0) * 100) / 100
     : num(actual?.total_cuentas);
-  const diferenciaViva = Math.round((totalVivo - num(actual?.dinero_esperado)) * 100) / 100;
-  const resultadoVivo = diferenciaViva === 0 ? "CUADRADA" : diferenciaViva < 0 ? "FALTANTE" : "SOBRANTE";
+  const sinValores = totalVivo === 0;
+  const diferenciaViva = sinValores ? 0 : Math.round((totalVivo - num(actual?.dinero_esperado)) * 100) / 100;
+  const resultadoVivo = sinValores ? "SIN_VALORES" : diferenciaViva === 0 ? "CUADRADA" : diferenciaViva < 0 ? "FALTANTE" : "SOBRANTE";
   const estado = actual ? ESTADOS[resultadoVivo] : null;
 
   return (
