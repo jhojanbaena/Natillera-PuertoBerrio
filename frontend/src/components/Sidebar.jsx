@@ -39,8 +39,8 @@ export const Sidebar = ({ isOpen, onClose }) => {
     { espacio: true },
     { to: "/liquidacion", label: "Liquidación Anual", icon: Sparkles },
     { to: "/historial", label: "Historial de Movimientos", icon: History },
-    { to: "/anios", label: "Años", icon: CalendarRange, badgeAnio: true },
     { to: "/estadisticas", label: "Estadísticas", icon: ChartColumn },
+    { to: "/anios", label: "Años", icon: CalendarRange, badgeAnio: true },
     ...(esDesarrollador ? [{ to: "/panel", label: "Panel", icon: SquareTerminal }] : []),
   ];
 
