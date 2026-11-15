@@ -76,3 +76,7 @@ __MACOSX/
 ._*
 # Modo demo local (SQLite y clave generada)
 backend/.demo/
+!frontend/.env.production
+
+.dev.vars*
+!.dev.vars.example

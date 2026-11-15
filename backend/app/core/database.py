@@ -1,7 +1,7 @@
 """Configuración del motor ORM de Base de Datos y Sesiones con SQLAlchemy 2.0."""
 from typing import Generator
 from fastapi import Request
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect, text, make_url
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, DeclarativeBase
 from app.core.config import settings
 
@@ -13,8 +13,16 @@ SCHEMA_COMUN = "comun"
 # Siempre las dos llaves: SQLAlchemy exige llaves consistentes entre mapas.
 MAPA_ESQUEMAS_BASE = {None: None, SCHEMA_COMUN: None}
 
+def _database_url():
+    """SQLAlchemy 2.1 usa psycopg (v3) para postgresql://; el proyecto instala psycopg2."""
+    url = make_url(settings.DATABASE_URL)
+    if url.drivername in {"postgresql", "postgres"}:
+        url = url.set(drivername="postgresql+psycopg2")
+    return url
+
+
 engine = create_engine(
-    settings.DATABASE_URL,
+    _database_url(),
     execution_options={"schema_translate_map": MAPA_ESQUEMAS_BASE},
     echo=settings.DEBUG,
     hide_parameters=True,
