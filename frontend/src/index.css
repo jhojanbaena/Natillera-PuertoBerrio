@@ -9,3 +9,21 @@ body {
   color: #0f172a;
 }
 
+
+/* Estadísticas: colores de las series (validados para daltonismo; ver Estadisticas.jsx). */
+.viz-root {
+  --serie-ingreso: #2a78d6;
+  --serie-egreso: #eb6834;
+  --serie-otro: #1baf7a;
+  --viz-grid: #e2e8f0;
+  --viz-eje: #64748b;
+  --viz-superficie: #ffffff;
+}
+html.dark .viz-root {
+  --serie-ingreso: #3987e5;
+  --serie-egreso: #d95926;
+  --serie-otro: #199e70;
+  --viz-grid: #334155;
+  --viz-eje: #94a3b8;
+  --viz-superficie: #1e293b;
+}

@@ -80,6 +80,7 @@ def client(password_hash, database_engine):
             Usuario(username="admin-test", password_hash=password_hash, is_admin=True),
             Usuario(username="reader-test", password_hash=password_hash, is_admin=False),
             Usuario(username="inactive-test", password_hash=password_hash, is_active=False),
+            Usuario(username="dev-test", password_hash=password_hash, is_admin=False, is_developer=True),
         ])
         db.commit()
 

@@ -2,10 +2,12 @@ import React from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
-export const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+// soloDesarrollador: la ruta es exclusiva del rol Desarrollador (apartado Panel).
+// El Desarrollador puede entrar a todas las demás rutas.
+export const ProtectedRoute = ({ children, soloDesarrollador = false }) => {
+  const { isAuthenticated, loading, user } = useAuth();
 
-  if (loading) {
+  if (loading || (isAuthenticated && !user)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
@@ -18,6 +20,11 @@ export const ProtectedRoute = ({ children }) => {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  const esDesarrollador = !!user?.is_developer;
+  if (soloDesarrollador && !esDesarrollador) {
+    return <Navigate to="/" replace />;
   }
 
   return children;

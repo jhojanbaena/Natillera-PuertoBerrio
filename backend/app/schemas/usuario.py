@@ -32,6 +32,7 @@ class UsuarioLogin(BaseModel):
 
 class UsuarioResponse(UsuarioBase):
     id: int
+    is_developer: bool = False
     is_active: bool
     created_at: datetime
 

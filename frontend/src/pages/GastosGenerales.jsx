@@ -10,7 +10,7 @@ import { anioDeTrabajo } from "../utils/periodo";
 // ese valor se descuenta automáticamente de la liquidación final de cada uno.
 export const GastosGenerales = () => {
   const { user } = useAuth();
-  const isAdmin = !!user?.is_admin;
+  const isAdmin = !!(user?.is_admin || user?.is_developer); // El Desarrollador también tiene acceso total.
   const [anio, setAnio] = useState(() => anioDeTrabajo());
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);

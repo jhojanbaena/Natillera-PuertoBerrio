@@ -13,6 +13,8 @@ from app.routers.liquidacion_pagos import router as liquidacion_pagos_router
 from app.routers.gastos_generales import router as gastos_generales_router
 from app.routers.contabilidad import router as contabilidad_router
 from app.routers.periodos import router as periodos_router
+from app.routers.estadisticas import router as estadisticas_router
+from app.routers.panel import router as panel_router
 
 __all__ = [
     "auth_router",
@@ -29,4 +31,6 @@ __all__ = [
     "gastos_generales_router",
     "contabilidad_router",
     "periodos_router",
+    "estadisticas_router",
+    "panel_router",
 ]

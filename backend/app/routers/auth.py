@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.login_limit import check_login_limit
-from app.core.deps import get_current_active_admin, get_current_user
+from app.core.deps import get_authenticated_user, get_current_active_admin
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.usuario import Usuario
 from app.schemas.usuario import Token, UsuarioCreate, UsuarioLogin, UsuarioResponse
@@ -112,7 +112,7 @@ def register_user(
 
 @router.get("/me", response_model=UsuarioResponse, summary="Obtener información del usuario autenticado")
 def get_current_user_profile(
-    current_user: Annotated[Usuario, Depends(get_current_user)]
+    current_user: Annotated[Usuario, Depends(get_authenticated_user)]
 ) -> Usuario:
     """Devuelve los datos del usuario correspondiente al token JWT provisto en la cabecera Bearer."""
     return current_user

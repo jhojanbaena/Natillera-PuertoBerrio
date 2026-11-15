@@ -69,6 +69,9 @@ def get_db(request: Request) -> Generator[Session, None, None]:
 
 def ensure_compatibility_columns() -> None:
     """Añade columnas nuevas a instalaciones existentes sin perder datos."""
+    with engine.begin() as connection:
+        for statement in usuarios_compat_sql(connection):
+            connection.execute(text(statement))
     columns = {column["name"] for column in inspect(engine).get_columns("notas")}
     if "fecha_programada" not in columns:
         with engine.begin() as connection:
@@ -102,6 +105,15 @@ def ensure_compatibility_columns() -> None:
     from app.core.periodos import asegurar_periodo_inicial
     with engine.begin() as connection:
         asegurar_periodo_inicial(connection)
+
+
+def usuarios_compat_sql(connection) -> list[str]:
+    """Columna del rol Desarrollador. Los usuarios existentes quedan sin ese rol
+    (FALSE), así el Administrador conserva exactamente sus permisos actuales."""
+    columnas = {c["name"] for c in inspect(connection).get_columns("usuarios")}
+    if "is_developer" in columnas:
+        return []
+    return ["ALTER TABLE usuarios ADD COLUMN is_developer BOOLEAN NOT NULL DEFAULT FALSE"]
 
 
 def finanzas_compat_sql(existing_columns: set[str]) -> list[str]:

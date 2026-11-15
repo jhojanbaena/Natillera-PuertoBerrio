@@ -15,7 +15,7 @@ oauth2_scheme = OAuth2PasswordBearer(
 )
 
 
-def get_current_user(
+def get_authenticated_user(
     token: Annotated[str, Depends(oauth2_scheme)],
     db: Session = Depends(get_db)
 ) -> Usuario:
@@ -53,11 +53,31 @@ def get_current_user(
     return user
 
 
+def get_current_user(
+    current_user: Annotated[Usuario, Depends(get_authenticated_user)]
+) -> Usuario:
+    """Usuario de los módulos de la natillera. El rol Desarrollador también tiene acceso a todo."""
+    return current_user
+
+
+def get_current_developer(
+    current_user: Annotated[Usuario, Depends(get_authenticated_user)]
+) -> Usuario:
+    """Verifica que el usuario actual tenga el rol Desarrollador (el Administrador no lo tiene)."""
+    if not current_user.is_developer:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Este apartado es exclusivo del rol Desarrollador",
+        )
+    return current_user
+
+
 def get_current_active_admin(
     current_user: Annotated[Usuario, Depends(get_current_user)]
 ) -> Usuario:
-    """Verifica que el usuario actual tenga privilegios de administrador."""
-    if not current_user.is_admin:
+    """Verifica privilegios de administrador. El rol Desarrollador también los tiene
+    (puede ver y usar todo); el Administrador, en cambio, no accede al Panel."""
+    if not (current_user.is_admin or current_user.is_developer):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="El usuario no posee permisos de administrador requeridos",

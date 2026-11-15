@@ -11,6 +11,8 @@ import {
   Receipt,
   Scale,
   CalendarRange,
+  ChartColumn,
+  SquareTerminal,
   LogOut, 
   X 
 } from "lucide-react";
@@ -22,16 +24,24 @@ export const Sidebar = ({ isOpen, onClose }) => {
   const { periodo } = usePeriodo();
   const navigate = useNavigate();
 
+  const esDesarrollador = !!user?.is_developer;
+
+  // Orden del menú. "espacio" separa los apartados y empuja los siguientes al
+  // final del menú. El Panel solo lo ve el rol Desarrollador (el Administrador no).
   const navItems = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard },
     { to: "/socios", label: "Socios", icon: Users },
     { to: "/prestamos", label: "Préstamos y Cartera", icon: BadgePercent },
     { to: "/actividades-rifas", label: "Eventos y Rifas", icon: CalendarDays },
-    { to: "/liquidacion", label: "Liquidación Anual", icon: Sparkles },
-    { to: "/historial", label: "Historial de Movimientos", icon: History },
     { to: "/bien-comun", label: "Bien Común", icon: HandHeart },
     { to: "/gastos-generales", label: "Gastos Generales", icon: Receipt },
     { to: "/contabilidad", label: "Contabilidad", icon: Scale },
+    { espacio: true },
+    { to: "/liquidacion", label: "Liquidación Anual", icon: Sparkles },
+    { to: "/historial", label: "Historial de Movimientos", icon: History },
+    { to: "/anios", label: "Años", icon: CalendarRange, badgeAnio: true },
+    { to: "/estadisticas", label: "Estadísticas", icon: ChartColumn },
+    ...(esDesarrollador ? [{ to: "/panel", label: "Panel", icon: SquareTerminal }] : []),
   ];
 
   const handleLogout = () => {
@@ -76,8 +86,9 @@ export const Sidebar = ({ isOpen, onClose }) => {
         </div>
 
         {/* Nav Links */}
-        <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
+        <nav className="flex-1 flex flex-col gap-1.5 px-4 py-6 overflow-y-auto">
           {navItems.map((item) => {
+            if (item.espacio) return <div key="espacio" aria-hidden="true" className="flex-1 min-h-4" />;
             const Icon = item.icon;
             return (
               <NavLink
@@ -94,49 +105,31 @@ export const Sidebar = ({ isOpen, onClose }) => {
               >
                 <Icon className="w-5 h-5" />
                 {item.label}
+                {item.badgeAnio && periodo?.anio_consultado && (
+                  <span
+                    className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      periodo.solo_lectura ? "bg-amber-100 text-amber-800" : "bg-purple-100 text-purple-800"
+                    }`}
+                  >
+                    {periodo.anio_consultado}
+                  </span>
+                )}
               </NavLink>
             );
           })}
         </nav>
-
-        {/* Años: historial de periodos y creación de un año nuevo */}
-        <div className="px-4 pb-3">
-          <NavLink
-            to="/anios"
-            onClick={() => onClose && onClose()}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3.5 py-3 rounded-xl font-medium text-sm transition-all ${
-                isActive
-                  ? "bg-emerald-50 text-emerald-700 font-semibold shadow-xs"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-              }`
-            }
-          >
-            <CalendarRange className="w-5 h-5" />
-            Años
-            {periodo?.anio_consultado && (
-              <span
-                className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  periodo.solo_lectura ? "bg-amber-100 text-amber-800" : "bg-purple-100 text-purple-800"
-                }`}
-              >
-                {periodo.anio_consultado}
-              </span>
-            )}
-          </NavLink>
-        </div>
 
         {/* User Card & Logout */}
         <div className="p-4 border-t border-slate-100 bg-slate-50/50">
           <div className="flex items-center justify-between mb-3">
             <div className="overflow-hidden">
               <p className="text-sm font-bold text-slate-800 truncate">
-                {user?.nombre_completo || user?.username || "Administrador"}
+                {user?.nombre_completo || user?.username || (esDesarrollador ? "Desarrollador" : "Administrador")}
               </p>
               <p className="text-xs text-slate-500 truncate">@{user?.username}</p>
             </div>
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-              {user?.is_admin ? "ADMIN" : "SOCIO"}
+              {esDesarrollador ? "DEV" : user?.is_admin ? "ADMIN" : "SOCIO"}
             </span>
           </div>
           <button

@@ -57,7 +57,7 @@ const ETIQUETAS_DESGLOSE = [
 
 export const Contabilidad = () => {
   const { user } = useAuth();
-  const isAdmin = !!user?.is_admin;
+  const isAdmin = !!(user?.is_admin || user?.is_developer); // El Desarrollador también tiene acceso total.
   const [actual, setActual] = useState(null);
   const [registros, setRegistros] = useState([]);
   const [loading, setLoading] = useState(true);

@@ -14,7 +14,7 @@ const mensajeError = (err, porDefecto) => {
 // Historial de años de la natillera y creación de un año nuevo.
 export const Anios = () => {
   const { user } = useAuth();
-  const isAdmin = !!user?.is_admin;
+  const isAdmin = !!(user?.is_admin || user?.is_developer); // El Desarrollador también tiene acceso total.
   const { cambiarAnio, volverAlActivo } = usePeriodo();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);

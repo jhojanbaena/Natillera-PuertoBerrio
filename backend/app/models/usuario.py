@@ -1,6 +1,6 @@
 """Modelo ORM para Usuarios del sistema (Autenticación y Administración)."""
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, func
+from sqlalchemy import String, Boolean, DateTime, func, false
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base, SCHEMA_COMUN
 
@@ -15,6 +15,8 @@ class Usuario(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     nombre_completo: Mapped[str] = mapped_column(String(100), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Rol Desarrollador: independiente del Administrador. Solo accede al apartado Panel.
+    is_developer: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

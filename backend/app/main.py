@@ -25,6 +25,8 @@ from app.routers import (
     gastos_generales_router,
     contabilidad_router,
     periodos_router,
+    estadisticas_router,
+    panel_router,
 )
 
 
@@ -92,6 +94,8 @@ all_routers = [
     gastos_generales_router,
     contabilidad_router,
     periodos_router,
+    estadisticas_router,
+    panel_router,
 ]
 
 # Inclusión con y sin prefijo para máxima versatilidad

@@ -15,7 +15,7 @@ const mensajeError = (err, porDefecto) => {
 
 export const Liquidacion = () => {
   const { user } = useAuth();
-  const isAdmin = !!user?.is_admin;
+  const isAdmin = !!(user?.is_admin || user?.is_developer); // El Desarrollador también tiene acceso total.
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

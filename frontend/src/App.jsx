@@ -16,6 +16,8 @@ import { BienComun } from "./pages/BienComun";
 import { GastosGenerales } from "./pages/GastosGenerales";
 import { Contabilidad } from "./pages/Contabilidad";
 import { Anios } from "./pages/Anios";
+import { Estadisticas } from "./pages/Estadisticas";
+import { Panel } from "./pages/Panel";
 import { Lock } from "lucide-react";
 
 const pageTitles = {
@@ -29,6 +31,8 @@ const pageTitles = {
   "/gastos-generales": "Gastos Generales",
   "/contabilidad": "Contabilidad",
   "/anios": "Años de la Natillera",
+  "/estadisticas": "Estadísticas de Movimientos",
+  "/panel": "Panel del Desarrollador",
 };
 
 const Layout = ({ children }) => {
@@ -164,6 +168,23 @@ function App() {
             element={
               <ProtectedRoute>
                 <Layout><Anios /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/estadisticas"
+            element={
+              <ProtectedRoute>
+                <Layout><Estadisticas /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Exclusivo del rol Desarrollador */}
+          <Route
+            path="/panel"
+            element={
+              <ProtectedRoute soloDesarrollador>
+                <Layout><Panel /></Layout>
               </ProtectedRoute>
             }
           />
