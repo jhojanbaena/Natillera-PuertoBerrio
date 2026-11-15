@@ -1,0 +1,52 @@
+import React from "react";
+import { Menu, ShieldCheck, RefreshCw, CalendarRange } from "lucide-react";
+import { usePeriodo } from "../context/PeriodoContext";
+import { ThemeToggle } from "./ThemeToggle";
+
+export const Navbar = ({ onOpenSidebar, onRefresh, isRefreshing, title = "Natillera Puerto Berrío" }) => {
+  const { periodo } = usePeriodo();
+  return (
+    <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 md:px-8 py-3.5 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onOpenSidebar}
+          className="p-2 -ml-2 text-purple-600 hover:text-purple-800 rounded-xl hover:bg-purple-50 md:hidden transition-colors"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
+        <h2 className="text-xl font-bold text-purple-800 tracking-tight">{title}</h2>
+      </div>
+
+      <div className="flex items-center gap-3">
+        {periodo?.anio_consultado && (
+          <div
+            title={periodo.solo_lectura ? "Año de solo consulta" : "Año activo"}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+              periodo.solo_lectura
+                ? "bg-amber-50 text-amber-800 border-amber-200"
+                : "bg-purple-50 text-purple-800 border-purple-200/60"
+            }`}
+          >
+            <CalendarRange className="w-3.5 h-3.5" />
+            <span>{periodo.solo_lectura ? `Consultando ${periodo.anio_consultado}` : `Año ${periodo.anio_consultado}`}</span>
+          </div>
+        )}
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            title="Actualizar datos"
+            className="p-2 text-slate-500 hover:text-emerald-600 rounded-xl hover:bg-emerald-50 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin text-emerald-600" : ""}`} />
+          </button>
+        )}
+        <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-semibold border border-emerald-200/60">
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Servidor Conectado</span>
+        </div>
+        <ThemeToggle />
+      </div>
+    </header>
+  );
+};
