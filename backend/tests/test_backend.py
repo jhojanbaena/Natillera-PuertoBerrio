@@ -222,3 +222,16 @@ def test_deleted_socio_restore_keeps_loans(client, socio, prestamo):
     assert client.post(API + f"/historial/{history[0]['id']}/revertir").status_code == 200
     assert client.get(API + f"/socios/{socio['id']}").status_code == 200
     assert client.get(API + f"/prestamos/{prestamo['id']}").status_code == 200
+
+
+def test_listado_de_socios_trae_mas_de_100_sin_paginar(client):
+    """La web pide /socios sin limit: debe traer a todos (antes cortaba en 100)."""
+    for i in range(1, 137):
+        r = client.post(API + "/socios", json={
+            "id": i, "cedula": f"9{i:07d}", "nombre": f"Socio {i:03d}",
+            "telefono": "3000000000", "residencia": "Puerto Berrio", "aporte_mensual": "130000",
+        })
+        assert r.status_code == 201, r.text
+    socios = client.get(API + "/socios").json()
+    assert len(socios) == 136
+    assert {s["id"] for s in socios} == set(range(1, 137))

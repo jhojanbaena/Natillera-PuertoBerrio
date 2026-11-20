@@ -305,7 +305,7 @@ def list_socios(
     current_user: Annotated[Usuario, Depends(get_current_user)],
     db: Session = Depends(get_db),
     skip: int = Query(0, ge=0, description="Paginación: registros a omitir"),
-    limit: int = Query(100, ge=1, le=500, description="Paginación: límite de registros"),
+    limit: int = Query(500, ge=1, le=500, description="Paginación: límite de registros"),
     q: Optional[str] = Query(None, description="Búsqueda por nombre o cédula"),
     solo_activos: bool = Query(True, description="Filtrar únicamente socios activos"),
     ordenar_por: str = Query("nombre", pattern="^(nombre|cedula|id)$", description="Campo de ordenamiento")
