@@ -44,3 +44,4 @@ from app.models.login_limit import LoginLimit
 from app.models.liquidacion import LiquidacionFondo, LiquidacionPago
 from app.models.periodo import Periodo
 from app.models.estadistica import EstadisticaGuardada
+from app.models.vista_socios import ConfigVistaSocios

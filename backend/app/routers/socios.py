@@ -676,6 +676,12 @@ def get_socio_hoja_ahorro(
     socio = db.execute(select(Socio).where(Socio.id == socio_id)).scalar_one_or_none()
     if not socio:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Socio con ID {socio_id} no encontrado")
+    return datos_hoja_ahorro(db, socio)
+
+
+def datos_hoja_ahorro(db: Session, socio: Socio) -> dict:
+    """Datos de la hoja de Total ahorrado; también los usa el portal de socios."""
+    socio_id = socio.id
     sincronizar_moras(db)
     movimientos = db.execute(select(FinanzaSocio).where(FinanzaSocio.socio_id == socio_id)).scalars().all()
     prestamos = db.execute(select(Prestamo).where(Prestamo.socio_id == socio_id)).scalars().all()

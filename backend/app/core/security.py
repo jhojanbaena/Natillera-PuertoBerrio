@@ -52,3 +52,35 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         return payload
     except InvalidTokenError:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Token del portal de socios ("Permitir vista a los socios")
+# ---------------------------------------------------------------------------
+# Lleva una audiencia propia: decode_access_token (admin y Desarrollador) no
+# indica audiencia, así que PyJWT rechaza estos tokens en todas las demás rutas.
+AUDIENCIA_SOCIO = "portal-socio"
+
+
+def create_socio_token(socio_id: int, huella_cedula: str, version: int) -> str:
+    now = datetime.now(timezone.utc)
+    payload: Dict[str, Any] = {
+        "sub": f"socio:{socio_id}",
+        "aud": AUDIENCIA_SOCIO,
+        "sid": socio_id,
+        "ced": huella_cedula,
+        "ver": version,
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_socio_token(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        return jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM], audience=AUDIENCIA_SOCIO,
+            options={"require": ["exp", "iat", "sub", "aud", "sid", "ced", "ver"]},
+        )
+    except InvalidTokenError:
+        return None

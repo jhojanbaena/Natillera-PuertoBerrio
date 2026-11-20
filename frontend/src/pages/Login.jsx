@@ -1,28 +1,49 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Lock, User, AlertCircle, ArrowRight } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Lock, User, AlertCircle, ArrowRight, IdCard } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { ingresarSocio, leerAvisoSocio, limpiarAvisoSocio } from "../api/socioClient";
+
+// La cédula del socio es solo numérica.
+const soloNumeros = (valor) => valor.replace(/\D/g, "").slice(0, 20);
 
 export const Login = () => {
+  const [params] = useSearchParams();
+  const [modo, setModo] = useState(params.has("socio") ? "socio" : "admin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => leerAvisoSocio() || "");
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  const cambiarModo = (valor) => {
+    limpiarAvisoSocio();
+    setModo(valor);
+    setUsername("");
+    setPassword("");
+    setError("");
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    limpiarAvisoSocio();
     setIsLoading(true);
 
     try {
+      if (modo === "socio") {
+        await ingresarSocio(username, password);
+        navigate("/socio");
+        return;
+      }
       await login(username, password);
       navigate("/");
     } catch (err) {
       console.error(err);
+      const detalle = err.response?.data?.detail;
       setError(
-        err.response?.data?.detail || "Usuario o contraseña inválidos. Inténtalo de nuevo."
+        typeof detalle === "string" ? detalle : "Usuario o contraseña inválidos. Inténtalo de nuevo."
       );
     } finally {
       setIsLoading(false);
@@ -47,6 +68,24 @@ export const Login = () => {
           <p className="text-sm text-slate-500 mt-1">Gestión integral de ahorro y crédito comunitario</p>
         </div>
 
+        {/* Administración / Soy socio */}
+        <div className="grid grid-cols-2 gap-1 p-1 mb-6 bg-slate-100 rounded-xl" role="tablist">
+          {[["admin", "Administración"], ["socio", "Soy socio"]].map(([valor, texto]) => (
+            <button
+              key={valor}
+              type="button"
+              role="tab"
+              aria-selected={modo === valor}
+              onClick={() => cambiarModo(valor)}
+              className={`py-2 rounded-lg text-sm font-bold transition-all ${
+                modo === valor ? "bg-white text-purple-800 shadow" : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {texto}
+            </button>
+          ))}
+        </div>
+
         {/* Error notification */}
         {error && (
           <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-start gap-3 text-sm animate-shake">
@@ -59,16 +98,19 @@ export const Login = () => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Usuario
+              {modo === "socio" ? "Usuario (tu cédula)" : "Usuario"}
             </label>
             <div className="relative">
-              <User className="w-5 h-5 text-slate-400 absolute left-3.5 top-3" />
+              {modo === "socio"
+                ? <IdCard className="w-5 h-5 text-slate-400 absolute left-3.5 top-3" />
+                : <User className="w-5 h-5 text-slate-400 absolute left-3.5 top-3" />}
               <input
                 type="text"
                 required
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Ej. admin"
+                onChange={(e) => setUsername(modo === "socio" ? soloNumeros(e.target.value) : e.target.value)}
+                placeholder={modo === "socio" ? "Solo números" : "Ej. admin"}
+                {...(modo === "socio" ? { inputMode: "numeric", autoComplete: "username", maxLength: 20 } : {})}
                 className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm transition-all"
               />
             </div>
@@ -76,7 +118,7 @@ export const Login = () => {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Contraseña
+              {modo === "socio" ? "Contraseña (tu cédula)" : "Contraseña"}
             </label>
             <div className="relative">
               <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-3" />
@@ -84,8 +126,9 @@ export const Login = () => {
                 type="password"
                 required
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => setPassword(modo === "socio" ? soloNumeros(e.target.value) : e.target.value)}
                 placeholder="••••••••"
+                {...(modo === "socio" ? { inputMode: "numeric", autoComplete: "current-password", maxLength: 20 } : {})}
                 className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm transition-all"
               />
             </div>
@@ -100,7 +143,7 @@ export const Login = () => {
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
             ) : (
               <>
-                <span>Ingresar al Sistema</span>
+                <span>{modo === "socio" ? "Ver mi ahorro" : "Ingresar al Sistema"}</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}

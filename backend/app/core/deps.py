@@ -34,7 +34,8 @@ def get_authenticated_user(
         raise credentials_exception
 
     username: str = payload.get("sub")
-    if username is None:
+    # Los tokens del portal de socios nunca sirven para el sistema administrativo.
+    if username is None or "aud" in payload:
         raise credentials_exception
 
     # Buscar usuario en la base de datos

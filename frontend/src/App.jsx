@@ -18,6 +18,7 @@ import { Contabilidad } from "./pages/Contabilidad";
 import { Anios } from "./pages/Anios";
 import { Estadisticas } from "./pages/Estadisticas";
 import { Panel } from "./pages/Panel";
+import { PortalSocio } from "./pages/PortalSocio";
 import { Lock } from "lucide-react";
 
 const pageTitles = {
@@ -91,6 +92,8 @@ function App() {
         <PeriodoProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* Vista de los socios: independiente del panel administrativo, sin menú */}
+          <Route path="/socio" element={<PortalSocio />} />
           <Route
             path="/"
             element={

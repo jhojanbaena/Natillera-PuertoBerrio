@@ -15,6 +15,7 @@ from app.routers.contabilidad import router as contabilidad_router
 from app.routers.periodos import router as periodos_router
 from app.routers.estadisticas import router as estadisticas_router
 from app.routers.panel import router as panel_router
+from app.routers.portal_socio import router as portal_socio_router
 
 __all__ = [
     "auth_router",
@@ -33,4 +34,5 @@ __all__ = [
     "periodos_router",
     "estadisticas_router",
     "panel_router",
+    "portal_socio_router",
 ]

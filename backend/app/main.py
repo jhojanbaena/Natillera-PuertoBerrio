@@ -27,6 +27,7 @@ from app.routers import (
     periodos_router,
     estadisticas_router,
     panel_router,
+    portal_socio_router,
 )
 
 
@@ -96,6 +97,7 @@ all_routers = [
     periodos_router,
     estadisticas_router,
     panel_router,
+    portal_socio_router,
 ]
 
 # Inclusión con y sin prefijo para máxima versatilidad
