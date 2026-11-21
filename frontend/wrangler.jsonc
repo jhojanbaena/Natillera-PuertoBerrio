@@ -4,5 +4,9 @@
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application"
-  }
+  },
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "natilleraptb.com", "custom_domain": true }
+  ]
 }
