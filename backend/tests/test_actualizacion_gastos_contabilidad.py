@@ -12,7 +12,7 @@ D = Decimal
 def crear_socio(client, cedula, nombre, aporte=None, fecha=None):
     r = client.post(f"{API}/socios", json={
         "cedula": cedula, "nombre": nombre, "telefono": "3000000000",
-        "residencia": "Calle 1", "aporte_mensual": "100.00",
+        "residencia": "Calle 1", "aporte_mensual": "130000.00",
     })
     assert r.status_code == 201, r.text
     sid = r.json()["id"]

@@ -108,7 +108,7 @@ def test_operaciones_del_ojito_quedan_en_el_historial_del_socio(client, socio):
 def test_bitacora_no_mezcla_socios(client, socio):
     otro = client.post(f"{API}/socios", json={
         "cedula": "987654321", "nombre": "Otra Socia", "telefono": "3009999999",
-        "residencia": "Carrera 1", "aporte_mensual": "100.00",
+        "residencia": "Carrera 1", "aporte_mensual": "130000.00",
     }).json()
     client.post(f"{API}/socios/{otro['id']}/actividades", json={"nombre": "Kits", "ganancia": "10000"})
     assert perfil(client, socio["id"])["movimientos_bitacora"] == []
@@ -193,3 +193,12 @@ def test_bien_comun_distingue_intereses_cobrados_y_pendientes(client, socio):
     fila = next(f for f in despues["intereses_por_prestamo"] if f["prestamo_id"] == pr["id"])
     assert D(fila["intereses_cobrados_bien_comun"]) == 30000
     assert D(fila["intereses_pendientes"]) == pendiente_antes - 100000
+
+
+# ---------------------------------------------------------------- Cuota mínima
+
+def test_socio_nuevo_exige_cuota_minima_de_130000(client):
+    base = {"cedula": "55555555", "nombre": "Socio Nuevo", "telefono": "3001112233", "residencia": "Calle 5"}
+    assert client.post(f"{API}/socios", json={**base, "aporte_mensual": "129999.99"}).status_code == 422
+    r = client.post(f"{API}/socios", json={**base, "aporte_mensual": "130000"})
+    assert r.status_code == 201, r.text

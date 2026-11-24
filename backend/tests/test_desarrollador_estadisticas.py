@@ -46,7 +46,7 @@ def test_desarrollador_ve_todos_los_modulos(client, path):
 
 def test_desarrollador_tiene_permisos_de_administrador(client):
     _como(client, "dev-test")
-    socio = {"cedula": "987654321", "nombre": "Socio Dev", "telefono": "3001234567", "residencia": "Calle de prueba 123", "aporte_mensual": "100.00"}
+    socio = {"cedula": "987654321", "nombre": "Socio Dev", "telefono": "3001234567", "residencia": "Calle de prueba 123", "aporte_mensual": "130000.00"}
     assert client.post(API + "/socios", json=socio).status_code == 201
     assert client.post(API + "/estadisticas/guardadas", json={"nombre": "Dev", "filtros": {}}).status_code == 201
 

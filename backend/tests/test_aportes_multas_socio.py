@@ -76,7 +76,7 @@ def test_pagos_antiguos_sin_multa_cubren_las_mas_antiguas(client, socio):
 def test_multa_de_otro_socio_no_se_puede_pagar(client, socio):
     otro = client.post(f"{API}/socios", json={
         "cedula": "987654321", "nombre": "Otro Socio", "telefono": "3009999999",
-        "residencia": "Otra calle 1", "aporte_mensual": "50.00",
+        "residencia": "Otra calle 1", "aporte_mensual": "130000.00",
     }).json()
     multa = _mov(client, otro["id"], tipo_movimiento="MULTA", monto="10.00").json()
     assert _mov(client, socio["id"], tipo_movimiento="PAGO_MULTA", monto="10.00", multa_id=multa["id"]).status_code == 404
@@ -113,7 +113,7 @@ def test_socio_solo_con_multas_se_puede_eliminar(client, socio):
 
 def _otro_socio(client, cedula="987654321", socio_id=None):
     datos = {"cedula": cedula, "nombre": "Otro Socio", "telefono": "3009999999",
-             "residencia": "Otra calle 1", "aporte_mensual": "50.00"}
+             "residencia": "Otra calle 1", "aporte_mensual": "130000.00"}
     if socio_id:
         datos["id"] = socio_id
     return client.post(f"{API}/socios", json=datos).json()

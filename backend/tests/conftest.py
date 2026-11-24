@@ -104,7 +104,7 @@ def client(password_hash, database_engine):
 def socio(client):
     response = client.post("/api/v1/socios", json={
         "cedula": "123456789", "nombre": "Socio Prueba", "telefono": "3001234567",
-        "residencia": "Calle de prueba 123", "aporte_mensual": "100.00",
+        "residencia": "Calle de prueba 123", "aporte_mensual": "130000.00",
     })
     assert response.status_code == 201, response.text
     return response.json()

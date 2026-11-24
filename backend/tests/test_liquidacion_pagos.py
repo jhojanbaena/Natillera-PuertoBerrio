@@ -10,7 +10,7 @@ BASE = f"{API}/finanzas/liquidacion-anual"
 def crear_socio_con_ahorro(client, cedula, nombre, monto):
     r = client.post(f"{API}/socios", json={
         "cedula": cedula, "nombre": nombre, "telefono": "3000000000",
-        "residencia": "Calle 1", "aporte_mensual": "100.00",
+        "residencia": "Calle 1", "aporte_mensual": "130000.00",
     })
     assert r.status_code == 201, r.text
     sid = r.json()["id"]

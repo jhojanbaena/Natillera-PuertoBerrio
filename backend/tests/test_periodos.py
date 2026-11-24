@@ -13,7 +13,7 @@ def _anio(client, anio=None):
 def _socio(client, cedula, nombre, headers=None):
     r = client.post(f"{API}/socios", headers=headers or {}, json={
         "cedula": cedula, "nombre": nombre, "telefono": "3000000000",
-        "residencia": "Puerto Berrío", "aporte_mensual": "50000.00",
+        "residencia": "Puerto Berrío", "aporte_mensual": "130000.00",
     })
     assert r.status_code == 201, r.text
     return r.json()
@@ -126,7 +126,7 @@ def test_anio_anterior_es_solo_consulta(client):
     assert client.get(f"{API}/periodos/actual", headers=viejo).json()["solo_lectura"] is True
     intentos = [
         client.post(f"{API}/socios", headers=viejo, json={
-            "cedula": "400002", "nombre": "Nuevo X", "telefono": "3000000001", "residencia": "Calle 1", "aporte_mensual": "1.00"}),
+            "cedula": "400002", "nombre": "Nuevo X", "telefono": "3000000001", "residencia": "Calle 1", "aporte_mensual": "130000.00"}),
         client.put(f"{API}/socios/{s1['id']}", headers=viejo, json={"nombre": "Cambiado"}),
         client.post(f"{API}/socios/{s1['id']}/movimientos", headers=viejo, json={
             "tipo_movimiento": "APORTE", "monto": "10.00", "descripcion": "x"}),

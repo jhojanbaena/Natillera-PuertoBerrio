@@ -25,6 +25,9 @@ import {
 import { formatMoney, formatDate, fechaLocalISO } from "../utils/formatters";
 import { construirHoja } from "../utils/hojaAhorro";
 
+// Cuota mensual mínima para socios nuevos (el servidor también la exige).
+const APORTE_MENSUAL_MINIMO = 130000;
+
 const ACCIONES_MOVIMIENTO = {
   APORTE: "Aporte",
   MULTA: "Multa",
@@ -174,7 +177,7 @@ export const Socios = () => {
     nombre: "",
     telefono: "",
     residencia: "",
-    aporte_mensual: "100000.00",
+    aporte_mensual: "130000.00",
   });
   const [submittingSocio, setSubmittingSocio] = useState(false);
   const [deletingSocioId, setDeletingSocioId] = useState(null);
@@ -240,7 +243,7 @@ export const Socios = () => {
       nombre: "",
       telefono: "",
       residencia: "",
-      aporte_mensual: "100000.00",
+      aporte_mensual: "130000.00",
     });
     setIsSocioModalOpen(true);
   };
@@ -276,6 +279,10 @@ export const Socios = () => {
           aporte_mensual: formData.aporte_mensual,
         });
       } else {
+        if (Number(formData.aporte_mensual) < APORTE_MENSUAL_MINIMO) {
+          alert(`La cuota mensual mínima para un socio nuevo es ${formatMoney(APORTE_MENSUAL_MINIMO)}.`);
+          return;
+        }
         await api.post("/socios", formData);
       }
       setIsSocioModalOpen(false);
@@ -585,6 +592,9 @@ export const Socios = () => {
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Aporte Mensual ($) *
               </label>
+              {!editingSocio && (
+                <p className="text-[11px] text-slate-400 mb-1">Mínimo {formatMoney(APORTE_MENSUAL_MINIMO)}</p>
+              )}
               <MoneyInput
                 title="Aporte mensual: solo números (máximo 2 decimales)"
                 required

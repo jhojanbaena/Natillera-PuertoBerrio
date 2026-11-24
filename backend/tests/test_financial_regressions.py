@@ -128,7 +128,7 @@ def test_liquidation_proportional_profit_and_cent_conservation(client, socio):
     for i in range(2):
         response = client.post(f"{API}/socios", json={
             "cedula": f"999999{i}", "nombre": f"Otro {i}", "telefono": "3001234567",
-            "residencia": "Calle prueba", "aporte_mensual": "100",
+            "residencia": "Calle prueba", "aporte_mensual": "130000",
         })
         assert response.status_code == 201
         members.append(response.json())
@@ -236,7 +236,7 @@ def test_restore_does_not_overwrite_reused_socio_id(client, socio, prestamo):
     log = client.get(f"{API}/historial?tipo_accion=ELIMINAR").json()[0]
     replacement = client.post(f"{API}/socios", json={
         "id": sid, "cedula": "99999888", "nombre": "Nuevo socio", "telefono": "3001234567",
-        "residencia": "Calle prueba", "aporte_mensual": "100",
+        "residencia": "Calle prueba", "aporte_mensual": "130000",
     })
     assert replacement.status_code == 201
     assert client.post(f"{API}/historial/{log['id']}/revertir").status_code == 409

@@ -124,7 +124,7 @@ def test_total_ahorrado_suma_conceptos_sin_duplicar(client, socio):
     sid = socio["id"]
     otro = client.post(f"{API}/socios", json={
         "cedula": "987654321", "nombre": "Otro Socio", "telefono": "3009999999",
-        "residencia": "Calle 2", "aporte_mensual": "100.00",
+        "residencia": "Calle 2", "aporte_mensual": "130000.00",
     }).json()
     client.post(f"{API}/socios/{sid}/movimientos", json={"tipo_movimiento": "APORTE", "monto": "300000"})
     client.post(f"{API}/socios/{otro['id']}/movimientos", json={"tipo_movimiento": "APORTE", "monto": "100000"})
@@ -188,7 +188,7 @@ def test_hoja_imprimible_cuadra_con_total_ahorrado_y_deducciones(client, socio):
     sid = socio["id"]
     otro = client.post(f"{API}/socios", json={
         "cedula": "555666777", "nombre": "Zoila Tercera", "telefono": "3005555555",
-        "residencia": "Calle 3", "aporte_mensual": "100.00",
+        "residencia": "Calle 3", "aporte_mensual": "130000.00",
     }).json()
     anio = hoy_colombia().year
     client.post(f"{API}/socios/{sid}/movimientos", json={

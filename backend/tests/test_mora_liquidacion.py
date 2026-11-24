@@ -117,11 +117,11 @@ def test_liquidacion_solo_cuenta_el_anio_elegido(client, socio):
 def test_inactivo_con_saldo_recupera_ahorro_sin_utilidades(client, socio):
     otro = client.post(f"{API}/socios", json={
         "cedula": "5550001", "nombre": "Inactivo", "telefono": "3000000000",
-        "residencia": "Calle", "aporte_mensual": "100",
+        "residencia": "Calle", "aporte_mensual": "130000",
     }).json()
     sin_saldo = client.post(f"{API}/socios", json={
         "cedula": "5550002", "nombre": "Inactivo sin saldo", "telefono": "3000000000",
-        "residencia": "Calle", "aporte_mensual": "100",
+        "residencia": "Calle", "aporte_mensual": "130000",
     }).json()
     movement(client, socio["id"], "APORTE", 100)
     movement(client, otro["id"], "APORTE", 100)

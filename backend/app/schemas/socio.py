@@ -15,8 +15,16 @@ class SocioBase(BaseModel):
     aporte_mensual: Decimal = Field(..., max_digits=12, decimal_places=2, ge=0, description="Cuota o aporte obligatorio mensual pactado")
 
 
+# Cuota mensual mínima para socios nuevos (los socios ya registrados conservan la suya).
+APORTE_MENSUAL_MINIMO = Decimal("130000")
+
+
 class SocioCreate(SocioBase):
     id: Optional[int] = Field(None, ge=1, description="Identificador numérico del socio")
+    aporte_mensual: Decimal = Field(
+        ..., max_digits=12, decimal_places=2, ge=APORTE_MENSUAL_MINIMO,
+        description="Cuota mensual pactada (mínimo $130.000)",
+    )
 
 
 class SocioUpdate(BaseModel):
