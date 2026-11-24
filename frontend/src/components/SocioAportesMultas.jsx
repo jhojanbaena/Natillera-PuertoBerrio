@@ -394,7 +394,11 @@ export const MultasSocio = ({ socio, onRegistrado }) => {
 
 // Actividades del socio: una línea por actividad. Se elige el tipo:
 // - "Rifa interna": se indica el mes; en la impresión va al lado de la cuota de ese mes.
-// - "Otra": se escribe el nombre; en la impresión va en la columna Actividad.
+//   La ganancia se escribe a mano (funcionamiento de siempre).
+// - "Otra": se escribe el nombre; en la impresión va en la columna Actividad. Aparece
+//   "Valor por unidad": si se llena, Ganancia = valor por unidad x cantidad vendida
+//   (el servidor vuelve a calcularla al guardar). Si se deja vacío, la ganancia se
+//   escribe a mano como antes (así se conservan las líneas anteriores).
 const TIPOS_ACTIVIDAD = { RIFA_INTERNA: "Rifa interna", OTRA: "Otra" };
 
 const lineaDesde = (a) => ({
@@ -404,8 +408,18 @@ const lineaDesde = (a) => ({
   nombre: a.tipo === "RIFA_INTERNA" ? "" : a.nombre,
   mes: a.mes == null ? "" : String(a.mes),
   cantidad: a.cantidad_vendida == null ? "" : String(a.cantidad_vendida),
+  valorUnidad: a.valor_unidad == null ? "" : String(a.valor_unidad),
   ganancia: String(a.ganancia ?? ""),
 });
+
+const usaValorUnidad = (l) => l.tipo === "OTRA" && l.valorUnidad !== "" && l.valorUnidad != null;
+// Ganancia calculada: valor por unidad x cantidad vendida, redondeada a centavos.
+const gananciaCalculada = (l) => {
+  if (!usaValorUnidad(l) || l.cantidad === "") return "";
+  return String(Math.round(Number(l.valorUnidad) * Number(l.cantidad) * 100) / 100);
+};
+// Ganancia que se muestra y se guarda: la calculada si hay valor por unidad.
+const gananciaDe = (l) => (usaValorUnidad(l) ? gananciaCalculada(l) : l.ganancia);
 
 const etiquetaActividad = (l) =>
   l.tipo === "RIFA_INTERNA" ? `Rifa interna${l.mes ? ` de ${MESES[Number(l.mes) - 1]}` : ""}` : l.nombre || "Actividad";
@@ -426,14 +440,19 @@ export const ActividadesSocio = ({ socio, onRegistrado }) => {
     if (l.id == null) return true;
     const o = original(l.clave);
     return !o || o.tipo !== l.tipo || o.nombre !== l.nombre || o.mes !== l.mes
-      || o.cantidad !== l.cantidad || Number(o.ganancia) !== Number(l.ganancia);
+      || o.cantidad !== l.cantidad || (o.tipo === "OTRA" ? o.valorUnidad : "") !== (l.tipo === "OTRA" ? l.valorUnidad : "")
+      || Number(o.ganancia) !== Number(gananciaDe(l));
   };
 
   const editar = (l, campo, valor) => {
+    // Con valor por unidad, la ganancia se recalcula al cambiar el valor o la cantidad.
+    const siguiente = { ...l, [campo]: valor };
+    const cambios = { [campo]: valor };
+    if (usaValorUnidad(siguiente) && siguiente.cantidad !== "") cambios.ganancia = gananciaCalculada(siguiente);
     if (l.id == null) {
-      setNuevas((ns) => ns.map((n) => (n.clave === l.clave ? { ...n, [campo]: valor } : n)));
+      setNuevas((ns) => ns.map((n) => (n.clave === l.clave ? { ...n, ...cambios } : n)));
     } else {
-      setBorradores((prev) => ({ ...prev, [l.clave]: { ...prev[l.clave], [campo]: valor } }));
+      setBorradores((prev) => ({ ...prev, [l.clave]: { ...prev[l.clave], ...cambios } }));
     }
   };
 
@@ -441,7 +460,7 @@ export const ActividadesSocio = ({ socio, onRegistrado }) => {
     setAbierta(true);
     setNuevas((ns) => [
       ...ns,
-      { clave: `nueva-${++secuenciaActividad}`, id: null, tipo: "", nombre: "", mes: "", cantidad: "", ganancia: "" },
+      { clave: `nueva-${++secuenciaActividad}`, id: null, tipo: "", nombre: "", mes: "", cantidad: "", valorUnidad: "", ganancia: "" },
     ]);
   };
 
@@ -456,13 +475,18 @@ export const ActividadesSocio = ({ socio, onRegistrado }) => {
     if (l.tipo === "RIFA_INTERNA" && !l.mes) return alert("Elige el mes de la rifa interna.");
     if (l.tipo === "OTRA" && !l.nombre.trim()) return alert("Escribe el nombre de la actividad.");
     if (l.cantidad !== "" && !/^\d+$/.test(String(l.cantidad).trim())) return alert("La cantidad vendida debe ser un número entero.");
-    if (l.ganancia === "" || !(Number(l.ganancia) >= 0)) return alert("Escribe la ganancia (puede ser 0).");
+    const conValor = usaValorUnidad(l);
+    if (conValor && !(Number(l.valorUnidad) >= 0)) return alert("El valor por unidad debe ser un número mayor o igual a cero.");
+    if (conValor && l.cantidad === "") return alert("Escribe la cantidad vendida para calcular la ganancia.");
+    const ganancia = gananciaDe(l);
+    if (ganancia === "" || !(Number(ganancia) >= 0)) return alert("Escribe la ganancia (puede ser 0).");
     const datos = {
       tipo: l.tipo,
       nombre: l.tipo === "OTRA" ? l.nombre.trim() : null,
       mes: l.tipo === "RIFA_INTERNA" ? Number(l.mes) : null,
       cantidad_vendida: l.cantidad === "" ? null : Number(l.cantidad),
-      ganancia: Number(l.ganancia).toFixed(2),
+      valor_unidad: conValor ? Number(l.valorUnidad).toFixed(2) : null,
+      ganancia: Number(ganancia).toFixed(2),
     };
     try {
       setGuardando(l.clave);
@@ -511,8 +535,9 @@ export const ActividadesSocio = ({ socio, onRegistrado }) => {
         <p className="px-4 py-5 text-center text-xs text-slate-400">Este socio aún no tiene actividades registradas</p>
       ) : (
         <ul className="divide-y divide-slate-100">
-          <li className="hidden sm:grid grid-cols-[minmax(0,1fr)_90px_110px_64px] gap-3 px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/60">
+          <li className="hidden sm:grid grid-cols-[minmax(0,1fr)_100px_80px_110px_64px] gap-3 px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/60">
             <span>Actividad</span>
+            <span className="text-right">Valor por unidad</span>
             <span className="text-right">Cant. vendida</span>
             <span className="text-right">Ganancia</span>
             <span />
@@ -524,7 +549,7 @@ export const ActividadesSocio = ({ socio, onRegistrado }) => {
             return (
               <li
                 key={l.clave}
-                className={`grid grid-cols-[minmax(0,1fr)_64px] sm:grid-cols-[minmax(0,1fr)_90px_110px_64px] gap-x-3 gap-y-1 items-center px-4 py-2.5 text-xs ${
+                className={`grid grid-cols-[minmax(0,1fr)_64px] sm:grid-cols-[minmax(0,1fr)_100px_80px_110px_64px] gap-x-3 gap-y-1 items-center px-4 py-2.5 text-xs ${
                   pendiente ? "bg-amber-50" : ""
                 } ${ocupado ? "opacity-60 pointer-events-none" : ""}`}
               >
@@ -578,6 +603,22 @@ export const ActividadesSocio = ({ socio, onRegistrado }) => {
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
+                {l.tipo === "RIFA_INTERNA" || !l.tipo ? (
+                  <span className="hidden sm:block" />
+                ) : (
+                  <label className="flex items-center gap-1 text-slate-400 sm:justify-end" title="Valor de cada unidad vendida. Ganancia = valor por unidad × cantidad vendida">
+                    <span className="sm:hidden">Valor por unidad</span>
+                    $
+                    <MoneyInput
+                      value={l.valorUnidad}
+                      onChange={(e) => editar(l, "valorUnidad", e.target.value)}
+                      onKeyDown={enter}
+                      placeholder="Opcional"
+                      aria-label="Valor por unidad"
+                      className={`${inputClase} w-20 text-right`}
+                    />
+                  </label>
+                )}
                 <label className="flex items-center gap-1 text-slate-400 sm:justify-end">
                   <span className="sm:hidden">Cant.</span>
                   <input
@@ -586,20 +627,24 @@ export const ActividadesSocio = ({ socio, onRegistrado }) => {
                     value={l.cantidad}
                     onChange={(e) => editar(l, "cantidad", e.target.value.replace(/\D/g, ""))}
                     onKeyDown={enter}
-                    placeholder="Opcional"
-                    aria-label="Cantidad vendida (opcional)"
-                    className={`${inputClase} w-20 text-right`}
+                    placeholder={usaValorUnidad(l) ? "Requerida" : "Opcional"}
+                    aria-label={usaValorUnidad(l) ? "Cantidad vendida" : "Cantidad vendida (opcional)"}
+                    className={`${inputClase} w-16 text-right`}
                   />
                 </label>
-                <label className="flex items-center gap-1 text-slate-400 sm:justify-end">
+                <label
+                  className="flex items-center gap-1 text-slate-400 sm:justify-end"
+                  title={usaValorUnidad(l) ? "Calculada: valor por unidad × cantidad vendida" : undefined}
+                >
                   $
                   <MoneyInput
-                    value={l.ganancia}
+                    value={gananciaDe(l)}
                     onChange={(e) => editar(l, "ganancia", e.target.value)}
                     onKeyDown={enter}
-                    placeholder="0"
-                    aria-label="Ganancia"
-                    className={`${inputClase} w-24 text-right font-bold`}
+                    readOnly={usaValorUnidad(l)}
+                    placeholder={usaValorUnidad(l) ? "Falta cantidad" : "0"}
+                    aria-label={usaValorUnidad(l) ? "Ganancia (calculada)" : "Ganancia"}
+                    className={`${inputClase} w-24 text-right font-bold ${usaValorUnidad(l) ? "text-sky-700 border-solid cursor-default" : ""}`}
                   />
                 </label>
               </li>

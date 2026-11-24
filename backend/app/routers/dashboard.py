@@ -27,7 +27,7 @@ def get_bien_comun(
     current_user: Annotated[Usuario, Depends(get_current_user)],
     db: Session = Depends(get_db)
 ) -> BienComunResponse:
-    return FinanzasService.calcular_bien_comun(db)
+    return FinanzasService.calcular_bien_comun(db, con_pendientes=True)
 
 
 @router.get("/finanzas/liquidacion-anual", response_model=LiquidacionAnualResponse, summary="Liquidación de fin de año y reparto de utilidades")

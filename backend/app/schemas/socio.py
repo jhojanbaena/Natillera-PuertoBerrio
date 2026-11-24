@@ -1,7 +1,7 @@
 """Esquemas de validación Pydantic para Socios y su Perfil Integral."""
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.finanzas import FinanzaResponse, MultaEstadoItem
 from app.schemas.prestamo import PrestamoResponse
@@ -47,6 +47,10 @@ class ActividadSocioCreate(BaseModel):
     nombre: Optional[str] = Field(None, max_length=150, description="Nombre de la actividad (obligatorio en OTRA)")
     mes: Optional[int] = Field(None, ge=1, le=12, description="Mes de la rifa interna (1-12)")
     cantidad_vendida: Optional[int] = Field(None, ge=0, description="Cantidad vendida (opcional)")
+    valor_unidad: Optional[Decimal] = Field(
+        None, ge=0, max_digits=12, decimal_places=2,
+        description="Valor por unidad (solo OTRA). Si se envía, la ganancia = valor_unidad x cantidad_vendida",
+    )
     ganancia: Decimal = Field(..., ge=0, max_digits=12, decimal_places=2, description="Ganancia del socio")
 
     model_config = ConfigDict(extra="forbid")
@@ -58,11 +62,22 @@ class ActividadSocioCreate(BaseModel):
             if self.mes is None:
                 raise ValueError("Indica el mes de la rifa interna")
             self.nombre = nombre or "Rifa interna"
+            # La rifa interna conserva su funcionamiento: la ganancia se escribe a mano.
+            self.valor_unidad = None
         else:
             if not nombre:
                 raise ValueError("Escribe el nombre de la actividad")
             self.nombre = nombre
             self.mes = None
+            if self.valor_unidad is not None:
+                # Ganancia = valor por unidad x cantidad vendida, siempre calculada aquí
+                # (el valor que envíe el navegador se ignora).
+                if self.cantidad_vendida is None:
+                    raise ValueError("Escribe la cantidad vendida para calcular la ganancia con el valor por unidad")
+                ganancia = (self.valor_unidad * self.cantidad_vendida).quantize(Decimal("0.01"))
+                if ganancia >= Decimal("10000000000"):
+                    raise ValueError("La ganancia calculada es demasiado grande")
+                self.ganancia = ganancia
         return self
 
 
@@ -73,6 +88,7 @@ class ActividadSocioResponse(BaseModel):
     nombre: str
     mes: Optional[int] = None
     cantidad_vendida: Optional[int] = None
+    valor_unidad: Optional[Decimal] = None
     ganancia: Decimal
     created_at: datetime
 
@@ -139,6 +155,35 @@ class MovimientoPrestamoItem(BaseModel):
     vigente: bool = True
 
 
+class CambioCampo(BaseModel):
+    """Un dato modificado: valor anterior y nuevo (ya en texto legible)."""
+    campo: str
+    etiqueta: str
+    antes: str
+    despues: str
+
+
+class MovimientoBitacoraItem(BaseModel):
+    """Operación del ojito leída de la bitácora para el historial del socio."""
+    clave: str
+    historial_id: int
+    # ACTIVIDAD_AGREGADA, ACTIVIDAD_MODIFICADA, ACTIVIDAD_ELIMINADA, MULTA_MODIFICADA,
+    # MOVIMIENTO_MODIFICADO, MOVIMIENTO_ELIMINADO, MOVIMIENTO_REVERTIDO o REVERSION.
+    tipo: str
+    accion: str
+    fecha: datetime
+    descripcion: str
+    monto: Decimal = Decimal("0.00")
+    cambios: List[CambioCampo] = []
+    usuario_nombre: Optional[str] = None
+    revertido: bool = False
+
+
+class AuditoriaRegistro(BaseModel):
+    registrado_en: datetime
+    usuario_nombre: Optional[str] = None
+
+
 class SocioDetailResponse(SocioResponse):
     """Perfil detallado que consolida finanzas, multas y préstamos del socio."""
     total_ahorrado: Decimal = Decimal("0.00")
@@ -153,5 +198,8 @@ class SocioDetailResponse(SocioResponse):
     total_ahorrado_socio: TotalAhorradoSocio = TotalAhorradoSocio()
     movimientos_prestamos: List[MovimientoPrestamoItem] = []
     actividades: List[ActividadSocioResponse] = []
+    movimientos_bitacora: List[MovimientoBitacoraItem] = []
+    # id del aporte/multa/pago -> fecha y hora de registro y usuario que lo registró.
+    auditoria_finanzas: Dict[int, AuditoriaRegistro] = {}
 
     model_config = ConfigDict(from_attributes=True)

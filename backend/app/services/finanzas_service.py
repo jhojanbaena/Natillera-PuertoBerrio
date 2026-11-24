@@ -15,9 +15,12 @@ from app.models.actividad_socio import ActividadSocio, TipoActividadSocio
 from app.models.rifa import Rifa
 from app.models.reunion import Reunion
 from app.models.prestamo import Prestamo, AbonoPrestamo, EstadoPrestamo, ESTADOS_CERRADOS
-from app.schemas.dashboard import BienComunResponse, BienComunSocioItem, CapitalTotalResponse
+from app.schemas.dashboard import BienComunInteresPrestamo, BienComunResponse, BienComunSocioItem, CapitalTotalResponse
 from app.schemas.finanzas import LiquidacionSocioItem, LiquidacionAnualResponse
-from app.services.prestamos_service import ZONA_COLOMBIA, hoy_colombia
+from app.services.prestamos_service import (
+    CUOTA_BIEN_COMUN, ZONA_COLOMBIA, cuotas_vencidas, es_regla_mora, es_segundo_prestamo, hoy_colombia,
+    interes_mensual, intereses_pendientes_vencidos, periodos_interes,
+)
 
 
 def repartir_importe(total: Decimal, pesos: list[Decimal]) -> list[Decimal]:
@@ -47,6 +50,38 @@ INTERES_BIEN_COMUN = case(
 INTERES_SOCIO = AbonoPrestamo.monto_interes - INTERES_BIEN_COMUN
 
 
+def intereses_pendientes_bien_comun(prestamo: Prestamo, hoy: Optional[date] = None) -> tuple[Decimal, Decimal]:
+    """(intereses pendientes, parte del bien común) de un préstamo.
+
+    Pendiente = interés de meses ya vencidos que sigue sin pagarse (la misma cifra
+    de "Intereses vencidos" en las Deducciones del socio). No es dinero recibido:
+    solo se informa; pasa a ser cobrado cuando se registra el abono.
+    """
+    cero = Decimal("0.00")
+    if prestamo.estado in ESTADOS_CERRADOS:
+        return cero, cero
+    total = intereses_pendientes_vencidos(prestamo, hoy)
+    if total <= 0:
+        return cero, cero
+    bien_comun = cero
+    if es_regla_mora(prestamo):
+        for p in periodos_interes(prestamo, hoy):
+            if p.vencido and p.pendiente > 0 and p.valor > 0:
+                bien_comun += (p.pendiente * p.interes_bien_comun / p.valor).quantize(Decimal("0.01"))
+    else:
+        # Tasa fija: interés igual cada mes; al bien común desde la cuota #4
+        # (o todo en el segundo préstamo del socio), igual que al cobrarlo.
+        mensual = interes_mensual(prestamo, prestamo.tasa_interes)
+        pagado: dict[int, Decimal] = {}
+        for a in prestamo.abonos or []:
+            pagado[a.numero_cuota] = pagado.get(a.numero_cuota, cero) + (a.monto_interes or cero)
+        segundo = es_segundo_prestamo(prestamo)
+        for n in range(1, min(cuotas_vencidas(prestamo, hoy), prestamo.numero_cuotas) + 1):
+            if segundo or n >= CUOTA_BIEN_COMUN:
+                bien_comun += max(cero, mensual - pagado.get(n, cero))
+    return total, min(total, bien_comun)
+
+
 def total_gastos_generales(db: Session, anio: int) -> Decimal:
     return db.execute(
         select(func.coalesce(func.sum(GastoGeneral.monto), Decimal("0.00"))).where(GastoGeneral.anio == anio)
@@ -69,12 +104,16 @@ def _por_socio(filas) -> dict[int, dict[str, Decimal]]:
 
 class FinanzasService:
     @staticmethod
-    def calcular_bien_comun(db: Session, anio: Optional[int] = None) -> BienComunResponse:
+    def calcular_bien_comun(db: Session, anio: Optional[int] = None, con_pendientes: bool = False) -> BienComunResponse:
         """Consolida multas pagadas y la parte de intereses que corresponde al bien común
         (3 % de la regla 7 % / 3 %; en préstamos anteriores, intereses desde la cuarta cuota).
 
         Sin año usa todo el histórico; con año solo lo cobrado en ese año.
         Se reparte en partes iguales entre los socios activos.
+
+        Solo cuenta intereses efectivamente cobrados (abonos registrados). Con
+        `con_pendientes` informa además los intereses vencidos sin pagar, aparte:
+        no suman al dinero total ni a la participación de los socios.
         """
         condiciones_multas = [FinanzaSocio.tipo_movimiento == TipoMovimientoFinanciero.PAGO_MULTA.value]
         condiciones_abonos = []
@@ -98,9 +137,45 @@ class FinanzasService:
         ).scalars().all()
         participaciones = repartir_importe(total_dinero_total, [Decimal("1") for _ in socios])
 
+        detalle: list[BienComunInteresPrestamo] = []
+        total_pendientes = Decimal("0.00")
+        total_pendientes_bc = Decimal("0.00")
+        if con_pendientes:
+            nombres = dict(db.execute(select(Socio.id, Socio.nombre)).all())
+            cobrado = {
+                pid: (total or Decimal("0.00"), bc or Decimal("0.00"))
+                for pid, total, bc in db.execute(
+                    select(AbonoPrestamo.prestamo_id, func.sum(AbonoPrestamo.monto_interes), func.sum(INTERES_BIEN_COMUN))
+                    .where(*condiciones_abonos)
+                    .group_by(AbonoPrestamo.prestamo_id)
+                ).all()
+            }
+            hoy = hoy_colombia()
+            for prestamo in db.execute(select(Prestamo).order_by(Prestamo.id.asc())).scalars().all():
+                pendiente, pendiente_bc = intereses_pendientes_bien_comun(prestamo, hoy)
+                cobrado_total, cobrado_bc = cobrado.get(prestamo.id, (Decimal("0.00"), Decimal("0.00")))
+                if not (pendiente or cobrado_total):
+                    continue
+                total_pendientes += pendiente
+                total_pendientes_bc += pendiente_bc
+                detalle.append(BienComunInteresPrestamo(
+                    prestamo_id=prestamo.id,
+                    socio_id=prestamo.socio_id,
+                    socio_nombre=nombres.get(prestamo.socio_id) or f"Socio #{prestamo.socio_id}",
+                    estado=prestamo.estado,
+                    intereses_cobrados=cobrado_total,
+                    intereses_cobrados_bien_comun=cobrado_bc,
+                    intereses_pendientes=pendiente,
+                    intereses_pendientes_bien_comun=pendiente_bc,
+                ))
+
         return BienComunResponse(
             total_multas_recaudadas=total_multas_pagadas,
             total_intereses_obtenidos=total_intereses_obtenidos,
+            total_intereses_bien_comun=total_intereses_bien_comun,
+            total_intereses_pendientes=total_pendientes,
+            total_intereses_pendientes_bien_comun=total_pendientes_bc,
+            intereses_por_prestamo=detalle,
             total_dinero_total=total_dinero_total,
             socios=[
                 BienComunSocioItem(
@@ -564,7 +639,10 @@ def detalle_impresion_socio(db: Session, socio_id: int, deducciones) -> dict:
         if a.tipo == TipoActividadSocio.RIFA_INTERNA and a.mes in meses:
             meses[a.mes]["rifa_interna"] += a.ganancia
         else:
-            lista_actividades.append({"nombre": a.nombre, "cantidad_vendida": a.cantidad_vendida, "ganancia": a.ganancia})
+            lista_actividades.append({
+                "nombre": a.nombre, "cantidad_vendida": a.cantidad_vendida,
+                "valor_unidad": a.valor_unidad, "ganancia": a.ganancia,
+            })
 
     # Deducciones: deudas pendientes + parte del socio en los gastos generales del año.
     gastos = db.execute(
@@ -581,6 +659,11 @@ def detalle_impresion_socio(db: Session, socio_id: int, deducciones) -> dict:
         {"concepto": "Multas", "valor": deducciones.total_multas_pendientes},
     ] + [{"concepto": g.descripcion, "valor": parte} for g, parte in zip(gastos, partes_gastos)]
 
+    total_deducciones = sum((f["valor"] for f in filas_deducciones), cero)
+    # Total a recibir = Total ahorrado - deducciones. No descuenta el capital de los
+    # préstamos pendientes (fila "Préstamos"): solo intereses vencidos, multas y la
+    # parte del socio en los gastos generales.
+    deducciones_a_descontar = total_deducciones - deducciones.total_capital_pendiente
     return {
         "anio": anio,
         "meses": [{"mes": m, **valores} for m, valores in meses.items()],
@@ -588,6 +671,8 @@ def detalle_impresion_socio(db: Session, socio_id: int, deducciones) -> dict:
         "retiros": retiros,
         "actividades": lista_actividades,
         "deducciones": filas_deducciones,
-        "total_deducciones": sum((f["valor"] for f in filas_deducciones), cero),
+        "total_deducciones": total_deducciones,
+        "deducciones_a_descontar": deducciones_a_descontar,
+        "total_a_recibir": totales["total"] - deducciones_a_descontar,
         "total_ahorrado": totales,
     }

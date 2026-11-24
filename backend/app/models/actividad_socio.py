@@ -1,7 +1,8 @@
 """Modelo ORM de las actividades registradas a cada socio (apartado Actividades del socio).
 
 Cada línea es lo que el socio vendió o ganó en una actividad: tipo (rifa interna
-u otra), nombre, mes (solo rifa interna), cantidad vendida (opcional) y ganancia.
+u otra), nombre, mes (solo rifa interna), cantidad vendida (opcional), valor por
+unidad (solo "Otra", opcional) y ganancia.
 En la hoja imprimible las rifas internas van en su mes (columna R. interna) y las
 demás en la columna Actividad; en el Total ahorrado suman como "Ganancias en rifa
 interna" y "Ganancias en actividades".
@@ -41,6 +42,10 @@ class ActividadSocio(Base):
     # Mes (1-12) del año en que se hizo la rifa interna; NULL en las demás actividades.
     mes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     cantidad_vendida: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Valor de cada unidad vendida (solo actividades "Otra"). Si existe, la ganancia
+    # es valor_unidad x cantidad_vendida (calculada en el servidor). NULL en rifas
+    # internas y en las líneas anteriores, que conservan su ganancia escrita a mano.
+    valor_unidad: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
     ganancia: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=func.now())

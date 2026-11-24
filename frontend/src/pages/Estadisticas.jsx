@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  ChartColumn, Filter, Save, Trash2, Eye, AlertTriangle, ArrowLeft, Table2, TrendingUp, TrendingDown, Scale, Hash,
+  ChartColumn, ChevronDown, Filter, Save, Trash2, Eye, AlertTriangle, ArrowLeft, Table2, TrendingUp, TrendingDown, Scale, Hash,
 } from "lucide-react";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -173,7 +173,10 @@ const GraficaPorTipo = ({ porTipo }) => {
       {porTipo.map((t) => (
         <li key={t.tipo} title={`${t.etiqueta}: ${formatMoney(t.total)} en ${t.cantidad} registro(s)`}>
           <div className="flex items-baseline justify-between gap-3 text-xs">
-            <span className="font-semibold text-slate-700 truncate">{t.etiqueta}</span>
+            <span className="font-semibold text-slate-700 truncate">
+              {t.etiqueta}
+              {t.origen && <span className="font-normal text-slate-400"> · {t.origen}</span>}
+            </span>
             <span className="shrink-0 text-slate-500"><strong className="text-slate-800">{formatMoney(t.total)}</strong> · {t.cantidad}</span>
           </div>
           <div className="mt-1 h-2.5 rounded-full bg-slate-100 overflow-hidden">
@@ -184,6 +187,51 @@ const GraficaPorTipo = ({ porTipo }) => {
     </ul>
   );
 };
+
+// Detalle de un periodo: cada movimiento con su concepto, origen y descripción.
+const DetallePeriodo = ({ movimientos }) => (
+  <div className="rounded-xl border border-slate-100 bg-slate-50/60 overflow-x-auto">
+    <table className="w-full text-xs">
+      <thead><tr className="text-left text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
+        <th className="py-1.5 px-2">Fecha</th><th className="py-1.5 px-2">Concepto</th>
+        <th className="py-1.5 px-2">Descripción</th><th className="py-1.5 px-2 text-right">Valor</th>
+      </tr></thead>
+      <tbody>
+        {movimientos.map((m) => (
+          <tr key={`${m.tipo}-${m.referencia}`} className="border-b border-slate-100/70 last:border-0 text-slate-700 align-top">
+            <td className="py-1.5 px-2 whitespace-nowrap text-slate-500">{formatDate(m.fecha)}</td>
+            <td className="py-1.5 px-2">
+              <span className="inline-flex items-center gap-1.5 font-semibold">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: NATURALEZAS[m.naturaleza]?.color }} />
+                {m.concepto}
+              </span>
+              {m.origen && <p className="text-[10px] text-slate-400 pl-3.5">{m.origen}</p>}
+            </td>
+            <td className="py-1.5 px-2"><div className="max-w-[18rem] lg:max-w-[24rem]">{m.descripcion}</div></td>
+            <td className={`py-1.5 px-2 text-right font-bold whitespace-nowrap ${m.naturaleza === "EGRESO" ? "text-rose-700" : m.naturaleza === "INGRESO" ? "text-emerald-700" : "text-slate-600"}`}>
+              {m.naturaleza === "EGRESO" ? "−" : ""}{formatMoney(m.monto)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+// Conceptos de un periodo en una línea: "Aportes de ahorro $X (3) · ...".
+const ConceptosPeriodo = ({ porTipo }) => (
+  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+    {porTipo.map((t) => (
+      <span key={t.tipo} className="inline-flex items-center gap-1 text-[11px] text-slate-500 whitespace-nowrap">
+        <span className="w-1.5 h-1.5 rounded-full" style={{ background: NATURALEZAS[t.naturaleza]?.color }} />
+        {t.etiqueta} <strong className="text-slate-700">{formatMoney(t.total)}</strong>
+        {t.cantidad > 1 && <span className="text-slate-400">({t.cantidad})</span>}
+      </span>
+    ))}
+  </div>
+);
+
+const ORIGEN_EVENTO = { actividad: "Evento", rifa: "Rifa", reunion: "Reunión" };
 
 const Tarjeta = ({ icono: Icono, titulo, valor, detalle, color }) => (
   <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4">
@@ -197,7 +245,13 @@ const Tarjeta = ({ icono: Icono, titulo, valor, detalle, color }) => (
 
 const Resultados = ({ datos }) => {
   const [verTabla, setVerTabla] = useState(false);
+  const [abiertos, setAbiertos] = useState({});
   const { totales, serie, por_tipo: porTipo, por_evento: porEvento, granularidad } = datos;
+  // Estadísticas guardadas antes de este cambio no traen el detalle por movimiento.
+  const movimientos = datos.movimientos || [];
+  const tieneDetalle = Array.isArray(datos.movimientos);
+  const movimientosDe = (periodo) => movimientos.filter((m) => m.periodo === periodo);
+  const alternar = (periodo) => setAbiertos((a) => ({ ...a, [periodo]: !a[periodo] }));
   if (!totales.cantidad) {
     return (
       <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">
@@ -230,19 +284,44 @@ const Resultados = ({ datos }) => {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-100">
-                <th className="py-2 pr-3">Periodo</th><th className="py-2 pr-3 text-right">Ingresos</th>
+                <th className="py-2 pr-3">Periodo</th>
+                {serie.some((p) => p.por_tipo) && <th className="py-2 pr-3">Conceptos</th>}
+                <th className="py-2 pr-3 text-right">Ingresos</th>
                 <th className="py-2 pr-3 text-right">Egresos</th><th className="py-2 pr-3 text-right">Otros</th><th className="py-2 text-right">Balance</th>
               </tr></thead>
               <tbody>
-                {serie.filter((p) => p.ingresos || p.egresos || p.otros).map((p) => (
-                  <tr key={p.periodo} className="border-b border-slate-50 text-slate-700">
-                    <td className="py-1.5 pr-3 font-semibold">{etiquetaPeriodo(p.periodo, granularidad)}</td>
-                    <td className="py-1.5 pr-3 text-right">{formatMoney(p.ingresos)}</td>
-                    <td className="py-1.5 pr-3 text-right">{formatMoney(p.egresos)}</td>
-                    <td className="py-1.5 pr-3 text-right">{formatMoney(p.otros)}</td>
-                    <td className="py-1.5 text-right font-bold">{formatMoney(p.balance)}</td>
-                  </tr>
-                ))}
+                {serie.filter((p) => p.ingresos || p.egresos || p.otros).map((p) => {
+                  const abierto = !!abiertos[p.periodo];
+                  const lista = tieneDetalle ? movimientosDe(p.periodo) : [];
+                  return (
+                    <React.Fragment key={p.periodo}>
+                      <tr className="border-b border-slate-50 text-slate-700 align-top">
+                        <td className="py-1.5 pr-3 font-semibold whitespace-nowrap">
+                          {tieneDetalle ? (
+                            <button type="button" onClick={() => alternar(p.periodo)} aria-expanded={abierto}
+                                    className="inline-flex items-center gap-1 hover:text-emerald-700"
+                                    title={abierto ? "Ocultar los movimientos" : "Ver cada movimiento de este periodo"}>
+                              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${abierto ? "" : "-rotate-90"}`} />
+                              {etiquetaPeriodo(p.periodo, granularidad)}
+                            </button>
+                          ) : etiquetaPeriodo(p.periodo, granularidad)}
+                        </td>
+                        {serie.some((x) => x.por_tipo) && (
+                          <td className="py-1.5 pr-3"><div className="max-w-[20rem]"><ConceptosPeriodo porTipo={p.por_tipo || []} /></div></td>
+                        )}
+                        <td className="py-1.5 pr-3 text-right">{formatMoney(p.ingresos)}</td>
+                        <td className="py-1.5 pr-3 text-right">{formatMoney(p.egresos)}</td>
+                        <td className="py-1.5 pr-3 text-right">{formatMoney(p.otros)}</td>
+                        <td className="py-1.5 text-right font-bold">{formatMoney(p.balance)}</td>
+                      </tr>
+                      {abierto && (
+                        <tr className="border-b border-slate-100">
+                          <td colSpan={6} className="py-2"><DetallePeriodo movimientos={lista} /></td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -264,13 +343,14 @@ const Resultados = ({ datos }) => {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-100">
-                  <th className="py-2 pr-3">Evento</th><th className="py-2 pr-3 text-right">Ingresos</th>
+                  <th className="py-2 pr-3">Evento</th><th className="py-2 pr-3">Tipo</th><th className="py-2 pr-3 text-right">Ingresos</th>
                   <th className="py-2 pr-3 text-right">Inversión</th><th className="py-2 text-right">Balance</th>
                 </tr></thead>
                 <tbody>
                   {porEvento.map((e) => (
                     <tr key={e.evento} className="border-b border-slate-50 text-slate-700">
                       <td className="py-1.5 pr-3"><p className="font-semibold">{e.nombre}</p><p className="text-[11px] text-slate-400">{formatDate(e.fecha)}</p></td>
+                      <td className="py-1.5 pr-3 text-xs text-slate-500">{ORIGEN_EVENTO[String(e.evento).split("-")[0]] || e.origen || "-"}</td>
                       <td className="py-1.5 pr-3 text-right">{formatMoney(e.ingresos)}</td>
                       <td className="py-1.5 pr-3 text-right">{formatMoney(e.egresos)}</td>
                       <td className="py-1.5 text-right font-bold">{formatMoney(e.balance)}</td>

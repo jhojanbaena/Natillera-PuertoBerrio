@@ -34,6 +34,49 @@ const ACCIONES_MOVIMIENTO = {
   PAGO_PRESTAMO: "Pago de préstamo",
   CORRECCION_ABONO: "Corrección de abono",
   REVERSION_ABONO: "Reversión de abono",
+  ACTIVIDAD_AGREGADA: "Actividad agregada",
+  ACTIVIDAD_MODIFICADA: "Actividad modificada",
+  ACTIVIDAD_ELIMINADA: "Actividad eliminada",
+  MULTA_MODIFICADA: "Multa modificada",
+  MOVIMIENTO_MODIFICADO: "Movimiento modificado",
+  MOVIMIENTO_ELIMINADO: "Movimiento eliminado",
+  MOVIMIENTO_REVERTIDO: "Movimiento revertido",
+  REVERSION: "Reversión",
+};
+
+// Operaciones del ojito leídas de la bitácora (actividades, multas modificadas,
+// reversiones): traen fecha y hora, usuario y los valores anteriores y nuevos.
+const TIPOS_BITACORA = [
+  "ACTIVIDAD_AGREGADA", "ACTIVIDAD_MODIFICADA", "ACTIVIDAD_ELIMINADA", "MULTA_MODIFICADA",
+  "MOVIMIENTO_MODIFICADO", "MOVIMIENTO_ELIMINADO", "MOVIMIENTO_REVERTIDO", "REVERSION",
+];
+const movimientosDeBitacora = (perfil) =>
+  (perfil?.movimientos_bitacora || []).map((m) => ({
+    id: m.clave,
+    tipo_movimiento: m.tipo,
+    descripcion: m.descripcion,
+    fecha: m.fecha,
+    registrado_en: m.fecha,
+    usuario_nombre: m.usuario_nombre,
+    monto: m.monto,
+    cambios: m.cambios || [],
+    anulado: m.revertido,
+  }));
+
+// Aportes, multas y pagos: se les agrega la fecha y hora de registro y quién lo registró.
+const movimientosDeFinanzas = (perfil) =>
+  (perfil?.historial_finanzas || []).map((m) => {
+    const auditoria = perfil?.auditoria_finanzas?.[m.id];
+    return auditoria ? { ...m, registrado_en: auditoria.registrado_en, usuario_nombre: auditoria.usuario_nombre } : m;
+  });
+
+const formatFechaHora = (valor) => {
+  if (!valor) return "";
+  const d = new Date(valor);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("es-CO", {
+    year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
 };
 
 // Movimientos de préstamos (calculados en el servidor) con la forma del historial del socio.
@@ -66,7 +109,7 @@ const imprimirTotalAhorrado = async (perfil) => {
   try {
     const { data } = await api.get(`/socios/${perfil.id}/hoja-ahorro`);
     ventana.document.open();
-    ventana.document.write(construirHoja(data, `${window.location.origin}/logo-natillera.jpg`));
+    ventana.document.write(construirHoja(data, `${window.location.origin}/logo-natillera.jpg`, { zoom: true }));
     ventana.document.close();
     // Esperar el logo para que salga en la impresión.
     await Promise.all([...ventana.document.images].map((img) => (
@@ -297,13 +340,14 @@ export const Socios = () => {
   };
 
   const historialVisible = [
-    ...(selectedSocioProfile?.historial_finanzas || []),
+    ...movimientosDeFinanzas(selectedSocioProfile),
     ...movimientosDePrestamos(selectedSocioProfile),
+    ...movimientosDeBitacora(selectedSocioProfile),
   ]
     .filter((t) => historialTipo === "TODOS" || t.tipo_movimiento === historialTipo)
     .slice()
     .sort((a, b) => {
-      const porFecha = new Date(b.fecha) - new Date(a.fecha) || b.id - a.id;
+      const porFecha = new Date(b.fecha) - new Date(a.fecha) || String(b.id).localeCompare(String(a.id), "es", { numeric: true });
       if (historialOrden === "fecha_asc") return -porFecha;
       if (historialOrden === "accion") {
         const etiqueta = (t) => ACCIONES_MOVIMIENTO[t.tipo_movimiento] || t.tipo_movimiento;
@@ -692,7 +736,7 @@ export const Socios = () => {
               <div className="max-h-56 overflow-y-auto divide-y divide-slate-100 border border-slate-100 rounded-xl">
                 {historialVisible.length > 0 ? (
                   historialVisible.map((t) => (
-                    <div key={t.id} className="p-3 flex items-center justify-between text-xs hover:bg-slate-50/50">
+                    <div key={t.id} className="p-3 flex items-center justify-between gap-3 text-xs hover:bg-slate-50/50">
                       <div>
                         <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold mr-2 ${
                           t.tipo_movimiento === "APORTE"
@@ -701,6 +745,8 @@ export const Socios = () => {
                             ? "bg-rose-100 text-rose-800"
                             : TIPO_MOV_PRESTAMO_VALORES.includes(t.tipo_movimiento)
                             ? "bg-purple-100 text-purple-800"
+                            : TIPOS_BITACORA.includes(t.tipo_movimiento)
+                            ? "bg-sky-100 text-sky-800"
                             : "bg-blue-100 text-blue-800"
                         }`}>
                           {ACCIONES_MOVIMIENTO[t.tipo_movimiento] || t.tipo_movimiento}
@@ -711,7 +757,25 @@ export const Socios = () => {
                           </span>
                         )}
                         <RichTextDisplay value={t.descripcion || "-"} className={`font-medium ${t.anulado ? "text-slate-400 line-through" : "text-slate-700"}`} />
-                        <p className="text-[10px] text-slate-400 mt-0.5">{formatDate(t.fecha)}</p>
+                        {t.cambios?.length > 0 && (
+                          <ul className="mt-1 space-y-0.5">
+                            {t.cambios.map((c) => (
+                              <li key={c.campo} className="text-[11px] text-slate-500">
+                                <span className="font-semibold text-slate-600">{c.etiqueta}:</span>{" "}
+                                <span className="line-through decoration-slate-300">{c.antes}</span> → <span className="font-semibold text-slate-700">{c.despues}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {t.registrado_en && TIPOS_BITACORA.includes(t.tipo_movimiento)
+                            ? formatFechaHora(t.registrado_en)
+                            : formatDate(t.fecha)}
+                          {t.registrado_en && !TIPOS_BITACORA.includes(t.tipo_movimiento) && (
+                            <> · Registrado {formatFechaHora(t.registrado_en)}</>
+                          )}
+                          {t.usuario_nombre && <> · Por {t.usuario_nombre}</>}
+                        </p>
                       </div>
                       <p className={`font-bold ${t.anulado ? "text-slate-400 line-through" : "text-slate-800"}`}>{formatMoney(t.monto)}</p>
                     </div>

@@ -9,7 +9,6 @@ import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { Socios } from "./pages/Socios";
 import { Prestamos } from "./pages/Prestamos";
-import { ActividadesRifas } from "./pages/ActividadesRifas";
 import { Liquidacion } from "./pages/Liquidacion";
 import { Historial } from "./pages/Historial";
 import { BienComun } from "./pages/BienComun";
@@ -25,7 +24,6 @@ const pageTitles = {
   "/": "Dashboard — Lobby Financiero",
   "/socios": "Socios y Estado de Cuenta",
   "/prestamos": "Préstamos y Cartera",
-  "/actividades-rifas": "Eventos, Rifas y Reuniones",
   "/liquidacion": "Liquidación Anual y Utilidades",
   "/historial": "Historial Global de Movimientos",
   "/bien-comun": "Bien Común",
@@ -118,14 +116,8 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/actividades-rifas"
-            element={
-              <ProtectedRoute>
-                <Layout><ActividadesRifas /></Layout>
-              </ProtectedRoute>
-            }
-          />
+          {/* "Eventos y Rifas" se retiró: las actividades se registran en Socios > Actividades.
+              Sus registros históricos siguen en la base (Dashboard, Historial, Liquidación y Estadísticas). */}
           <Route
             path="/liquidacion"
             element={

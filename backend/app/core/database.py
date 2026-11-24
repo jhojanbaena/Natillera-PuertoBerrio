@@ -169,13 +169,16 @@ def prestamos_compat_sql(connection, schema: str | None = None) -> list[str]:
 
 
 def actividades_socio_compat_sql(connection, schema: str | None = None) -> list[str]:
-    """Columnas tipo y mes de las actividades del socio (las líneas existentes quedan como OTRA)."""
+    """Columnas tipo, mes y valor_unidad de las actividades del socio.
+
+    Las líneas existentes quedan como OTRA y sin valor por unidad (conservan su ganancia).
+    """
     inspector = inspect(connection)
     if not inspector.has_table("actividades_socio", schema=schema):
         return []
     columnas = {c["name"] for c in inspector.get_columns("actividades_socio", schema=schema)}
     prefijo = f'"{schema}".' if schema else ""
-    nuevas = {"tipo": "VARCHAR(20) NOT NULL DEFAULT 'OTRA'", "mes": "INTEGER"}
+    nuevas = {"tipo": "VARCHAR(20) NOT NULL DEFAULT 'OTRA'", "mes": "INTEGER", "valor_unidad": "NUMERIC(12, 2)"}
     return [
         f"ALTER TABLE {prefijo}actividades_socio ADD COLUMN {nombre} {tipo}"
         for nombre, tipo in nuevas.items() if nombre not in columnas

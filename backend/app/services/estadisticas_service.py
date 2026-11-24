@@ -10,8 +10,15 @@ los movimientos tal como están registrados en cada módulo del año consultado:
 - Actividades de los socios y gastos generales.
 
 Las fechas se toman en hora de Colombia, igual que en el resto del sistema.
+
+Cada movimiento lleva su concepto (tipo del catálogo), el módulo de origen y una
+descripción legible (socio, préstamo, cuota, evento...) tomada del registro real,
+para que las tablas muestren de dónde proviene cada peso.
 """
 from __future__ import annotations
+
+import html
+import re
 
 from collections import defaultdict
 from dataclasses import dataclass
@@ -30,6 +37,7 @@ from app.models.gastos import GastoGeneral
 from app.models.prestamo import AbonoPrestamo, Prestamo
 from app.models.reunion import Reunion
 from app.models.rifa import Rifa
+from app.models.socio import Socio
 from app.services.prestamos_service import ZONA_COLOMBIA
 
 INGRESO, EGRESO, OTRO = "INGRESO", "EGRESO", "OTRO"
@@ -55,6 +63,17 @@ TIPOS_MOVIMIENTO: dict[str, tuple[str, str]] = {
 }
 
 # Tipos ligados a un evento (actividad, rifa o reunión).
+# Módulo del sistema del que proviene cada tipo de movimiento.
+ORIGEN_TIPO: dict[str, str] = {
+    "APORTE": "Socios", "PAGO_MULTA": "Socios", "RETIRO_AHORRO": "Socios", "MULTA": "Socios",
+    "ABONO_CAPITAL": "Préstamos", "INTERES_PRESTAMO": "Préstamos", "DESEMBOLSO_PRESTAMO": "Préstamos",
+    "INGRESO_EVENTO": "Eventos", "INVERSION_EVENTO": "Eventos",
+    "INGRESO_RIFA": "Rifas", "INVERSION_RIFA": "Rifas",
+    "INGRESO_REUNION": "Reuniones",
+    "GANANCIA_ACTIVIDAD_SOCIO": "Actividades de socios",
+    "GASTO_GENERAL": "Gastos generales",
+}
+
 TIPOS_DE_EVENTO = {
     "actividad": ("INGRESO_EVENTO", "INVERSION_EVENTO"),
     "rifa": ("INGRESO_RIFA", "INVERSION_RIFA"),
@@ -71,6 +90,29 @@ class Movimiento:
     monto: Decimal
     evento: Optional[str] = None
     evento_nombre: Optional[str] = None
+    descripcion: str = ""
+    # Registro de origen, p. ej. "finanza-12", "abono-7": evita contar dos veces.
+    referencia: str = ""
+
+
+MESES_TEXTO = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]
+
+
+def _texto(valor) -> str:
+    """Texto plano (las descripciones pueden venir con formato HTML)."""
+    limpio = re.sub(r"<[^>]+>", " ", html.unescape(str(valor or "")))
+    return re.sub(r"\s+", " ", limpio).strip()
+
+
+def _nombres_socios(db) -> dict[int, str]:
+    return dict(db.execute(select(Socio.id, Socio.nombre)).all())
+
+
+def _socio(nombres: dict[int, str], socio_id) -> str:
+    return nombres.get(socio_id) or f"Socio #{socio_id}"
 
 
 def _fecha_colombia(valor) -> date:
@@ -111,43 +153,100 @@ def _condiciones(columna, desde: Optional[date], hasta: Optional[date], es_fecha
 # Lectura de movimientos por origen
 # ---------------------------------------------------------------------------
 
+ETIQUETA_FINANZA = {
+    "APORTE": "Aporte de ahorro", "PAGO_MULTA": "Pago de multa",
+    "RETIRO_AHORRO": "Retiro de ahorro", "MULTA": "Multa impuesta",
+}
+
+
 def _finanzas(db, tipo_db: str, tipo: str, desde, hasta) -> Iterable[Movimiento]:
+    nombres = _nombres_socios(db)
     filas = db.execute(
-        select(FinanzaSocio.fecha, FinanzaSocio.monto)
+        select(FinanzaSocio.id, FinanzaSocio.socio_id, FinanzaSocio.fecha, FinanzaSocio.monto,
+               FinanzaSocio.descripcion, FinanzaSocio.periodo)
         .where(FinanzaSocio.tipo_movimiento == tipo_db, *_condiciones(FinanzaSocio.fecha, desde, hasta, True))
     ).all()
-    return [Movimiento(tipo, _fecha_colombia(f), m) for f, m in filas]
+    movimientos = []
+    for i, socio_id, fecha, monto, descripcion, periodo in filas:
+        partes = [f"{ETIQUETA_FINANZA[tipo_db]} de {_socio(nombres, socio_id)}"]
+        if periodo:
+            try:
+                partes.append(f"mes de {MESES_TEXTO[int(periodo[5:7]) - 1]} {periodo[:4]}")
+            except (ValueError, IndexError):
+                partes.append(periodo)
+        detalle = _texto(descripcion)
+        if detalle and not (tipo_db == "APORTE" and periodo and detalle.lower().startswith("aporte mensual")):
+            partes.append(detalle)
+        movimientos.append(Movimiento(tipo, _fecha_colombia(fecha), monto, descripcion=" · ".join(partes),
+                                      referencia=f"finanza-{i}"))
+    return movimientos
 
 
 def _abonos(db, columna, tipo: str, desde, hasta) -> Iterable[Movimiento]:
+    nombres = _nombres_socios(db)
     filas = db.execute(
-        select(AbonoPrestamo.fecha_pago, columna).where(*_condiciones(AbonoPrestamo.fecha_pago, desde, hasta, True))
+        select(AbonoPrestamo.id, AbonoPrestamo.prestamo_id, AbonoPrestamo.numero_cuota, Prestamo.socio_id,
+               AbonoPrestamo.fecha_pago, columna)
+        .join(Prestamo, Prestamo.id == AbonoPrestamo.prestamo_id)
+        .where(*_condiciones(AbonoPrestamo.fecha_pago, desde, hasta, True))
     ).all()
-    return [Movimiento(tipo, _fecha_colombia(f), m) for f, m in filas]
+    concepto = "Abono a capital" if tipo == "ABONO_CAPITAL" else "Interés cobrado"
+    return [
+        Movimiento(tipo, _fecha_colombia(f), m,
+                   descripcion=f"{concepto} del préstamo #{prestamo_id} de {_socio(nombres, socio_id)} · cuota #{cuota}",
+                   referencia=f"abono-{i}")
+        for i, prestamo_id, cuota, socio_id, f, m in filas
+    ]
 
 
 def _desembolsos(db, desde, hasta) -> Iterable[Movimiento]:
+    nombres = _nombres_socios(db)
     filas = db.execute(
-        select(Prestamo.fecha_prestamo, Prestamo.monto_prestado)
+        select(Prestamo.id, Prestamo.socio_id, Prestamo.fecha_prestamo, Prestamo.monto_prestado, Prestamo.numero_cuotas)
         .where(*_condiciones(Prestamo.fecha_prestamo, desde, hasta, False))
     ).all()
-    return [Movimiento("DESEMBOLSO_PRESTAMO", f, m) for f, m in filas]
+    return [
+        Movimiento("DESEMBOLSO_PRESTAMO", f, m,
+                   descripcion=f"Préstamo #{i} entregado a {_socio(nombres, socio_id)} · {cuotas} cuotas",
+                   referencia=f"prestamo-{i}")
+        for i, socio_id, f, m, cuotas in filas
+    ]
 
 
 def _gastos(db, desde, hasta) -> Iterable[Movimiento]:
     filas = db.execute(
-        select(GastoGeneral.created_at, GastoGeneral.monto)
+        select(GastoGeneral.id, GastoGeneral.created_at, GastoGeneral.monto, GastoGeneral.descripcion)
         .where(*_condiciones(GastoGeneral.created_at, desde, hasta, True))
     ).all()
-    return [Movimiento("GASTO_GENERAL", _fecha_colombia(f), m) for f, m in filas]
+    return [
+        Movimiento("GASTO_GENERAL", _fecha_colombia(f), m,
+                   descripcion=f"Gasto general: {_texto(descripcion) or 'sin descripción'}", referencia=f"gasto-{i}")
+        for i, f, m, descripcion in filas
+    ]
 
 
 def _actividades_socio(db, desde, hasta) -> Iterable[Movimiento]:
+    nombres = _nombres_socios(db)
     filas = db.execute(
-        select(ActividadSocio.created_at, ActividadSocio.ganancia)
+        select(ActividadSocio.id, ActividadSocio.socio_id, ActividadSocio.tipo, ActividadSocio.nombre,
+               ActividadSocio.mes, ActividadSocio.cantidad_vendida, ActividadSocio.valor_unidad,
+               ActividadSocio.created_at, ActividadSocio.ganancia)
         .where(*_condiciones(ActividadSocio.created_at, desde, hasta, True))
     ).all()
-    return [Movimiento("GANANCIA_ACTIVIDAD_SOCIO", _fecha_colombia(f), m) for f, m in filas]
+    movimientos = []
+    for i, socio_id, tipo, nombre, mes, cantidad, valor_unidad, f, m in filas:
+        if tipo == "RIFA_INTERNA":
+            texto = "Rifa interna" + (f" de {MESES_TEXTO[mes - 1]}" if mes and 1 <= mes <= 12 else "")
+        else:
+            texto = f"Actividad '{nombre}'"
+        texto += f" de {_socio(nombres, socio_id)}"
+        if cantidad is not None:
+            texto += f" · {cantidad} vendidas"
+            if valor_unidad is not None:
+                texto += f" a ${valor_unidad:,.0f} c/u".replace(",", ".")
+        movimientos.append(Movimiento("GANANCIA_ACTIVIDAD_SOCIO", _fecha_colombia(f), m, descripcion=texto,
+                                      referencia=f"actividad_socio-{i}"))
+    return movimientos
 
 
 def _eventos(db, tipos: set[str], desde, hasta, evento: Optional[str]) -> list[Movimiento]:
@@ -163,9 +262,11 @@ def _eventos(db, tipos: set[str], desde, hasta, evento: Optional[str]) -> list[M
         for i, nombre, fecha, ingresos, inversion in db.execute(q).all():
             clave = f"actividad-{i}"
             if "INGRESO_EVENTO" in tipos:
-                movimientos.append(Movimiento("INGRESO_EVENTO", fecha, ingresos or Decimal("0"), clave, nombre))
+                movimientos.append(Movimiento("INGRESO_EVENTO", fecha, ingresos or Decimal("0"), clave, nombre,
+                                              f"Ingresos brutos del evento '{nombre}'", f"{clave}-ingreso"))
             if "INVERSION_EVENTO" in tipos:
-                movimientos.append(Movimiento("INVERSION_EVENTO", fecha, inversion or Decimal("0"), clave, nombre))
+                movimientos.append(Movimiento("INVERSION_EVENTO", fecha, inversion or Decimal("0"), clave, nombre,
+                                              f"Inversión en el evento '{nombre}'", f"{clave}-inversion"))
 
     if clase_evento in (None, "rifa") and tipos & {"INGRESO_RIFA", "INVERSION_RIFA"}:
         q = select(Rifa.id, Rifa.nombre, Rifa.fecha, Rifa.boletas_vendidas, Rifa.valor_boleta, Rifa.inversion_premios) \
@@ -177,9 +278,13 @@ def _eventos(db, tipos: set[str], desde, hasta, evento: Optional[str]) -> list[M
             if "INGRESO_RIFA" in tipos:
                 # Mismo recaudo bruto que usa el módulo de rifas: boletas vendidas x valor.
                 recaudo = Decimal(vendidas or 0) * (valor or Decimal("0"))
-                movimientos.append(Movimiento("INGRESO_RIFA", fecha, recaudo, clave, f"Rifa: {nombre}"))
+                valor_txt = f"${(valor or Decimal('0')):,.0f}".replace(",", ".")
+                movimientos.append(Movimiento("INGRESO_RIFA", fecha, recaudo, clave, f"Rifa: {nombre}",
+                                              f"Venta de la rifa '{nombre}' · {vendidas or 0} boletas a {valor_txt}",
+                                              f"{clave}-ingreso"))
             if "INVERSION_RIFA" in tipos:
-                movimientos.append(Movimiento("INVERSION_RIFA", fecha, inversion or Decimal("0"), clave, f"Rifa: {nombre}"))
+                movimientos.append(Movimiento("INVERSION_RIFA", fecha, inversion or Decimal("0"), clave, f"Rifa: {nombre}",
+                                              f"Premios de la rifa '{nombre}'", f"{clave}-inversion"))
 
     if clase_evento in (None, "reunion") and "INGRESO_REUNION" in tipos:
         q = select(Reunion.id, Reunion.tema, Reunion.fecha, Reunion.ganancias_reunion) \
@@ -187,7 +292,8 @@ def _eventos(db, tipos: set[str], desde, hasta, evento: Optional[str]) -> list[M
         if id_evento:
             q = q.where(Reunion.id == int(id_evento))
         for i, tema, fecha, ganancia in db.execute(q).all():
-            movimientos.append(Movimiento("INGRESO_REUNION", fecha, ganancia or Decimal("0"), f"reunion-{i}", f"Reunión: {tema}"))
+            movimientos.append(Movimiento("INGRESO_REUNION", fecha, ganancia or Decimal("0"), f"reunion-{i}", f"Reunión: {tema}",
+                                          f"Ganancias de la reunión '{_texto(tema)}'", f"reunion-{i}-ingreso"))
 
     return movimientos
 
@@ -262,26 +368,60 @@ def calcular_estadistica(db: Session, filtros: dict) -> dict:
         por_tipo[m.tipo][1] += 1
         if m.evento:
             ev = por_evento.setdefault(m.evento, {"evento": m.evento, "nombre": m.evento_nombre, "fecha": m.fecha,
+                                                  "origen": ORIGEN_TIPO.get(m.tipo, ""),
                                                   INGRESO: Decimal("0"), EGRESO: Decimal("0")})
             ev[naturaleza] += m.monto
 
     serie, granularidad = [], None
+    diaria = False
     if desde and hasta:
         diaria = (hasta - desde).days < MAX_DIAS_SERIE_DIARIA
         granularidad = "dia" if diaria else "mes"
         cubetas = {c: {INGRESO: Decimal("0"), EGRESO: Decimal("0"), OTRO: Decimal("0")}
                    for c in _claves_serie(desde, hasta, diaria)}
+        # Conceptos de cada periodo: total y cantidad por tipo de movimiento.
+        conceptos: dict[str, dict[str, list]] = {c: {} for c in cubetas}
         for m in movimientos:
             clave = m.fecha.isoformat() if diaria else m.fecha.strftime("%Y-%m")
             if clave in cubetas:
                 cubetas[clave][TIPOS_MOVIMIENTO[m.tipo][1]] += m.monto
+                acumulado = conceptos[clave].setdefault(m.tipo, [Decimal("0"), 0])
+                acumulado[0] += m.monto
+                acumulado[1] += 1
         serie = [{
             "periodo": clave,
             "ingresos": _num(v[INGRESO]),
             "egresos": _num(v[EGRESO]),
             "otros": _num(v[OTRO]),
             "balance": _num(v[INGRESO] - v[EGRESO]),
+            "por_tipo": sorted([{
+                "tipo": tipo,
+                "etiqueta": TIPOS_MOVIMIENTO[tipo][0],
+                "naturaleza": TIPOS_MOVIMIENTO[tipo][1],
+                "total": _num(total),
+                "cantidad": cantidad,
+            } for tipo, (total, cantidad) in conceptos[clave].items()], key=lambda x: -x["total"]),
         } for clave, v in cubetas.items()]
+
+    # Detalle: cada registro con su concepto, origen y descripción (sin duplicados).
+    vistos: set[tuple[str, str]] = set()
+    detalle = []
+    for m in sorted(movimientos, key=lambda x: (x.fecha, x.tipo, x.referencia)):
+        llave = (m.tipo, m.referencia)
+        if m.referencia and llave in vistos:
+            continue
+        vistos.add(llave)
+        detalle.append({
+            "fecha": m.fecha.isoformat(),
+            "periodo": m.fecha.isoformat() if diaria else m.fecha.strftime("%Y-%m"),
+            "tipo": m.tipo,
+            "concepto": TIPOS_MOVIMIENTO[m.tipo][0],
+            "naturaleza": TIPOS_MOVIMIENTO[m.tipo][1],
+            "origen": ORIGEN_TIPO.get(m.tipo, ""),
+            "descripcion": m.descripcion or TIPOS_MOVIMIENTO[m.tipo][0],
+            "referencia": m.referencia,
+            "monto": _num(m.monto),
+        })
 
     return {
         "anio": anio_del_periodo(db),
@@ -299,13 +439,16 @@ def calcular_estadistica(db: Session, filtros: dict) -> dict:
             "tipo": tipo,
             "etiqueta": TIPOS_MOVIMIENTO[tipo][0],
             "naturaleza": TIPOS_MOVIMIENTO[tipo][1],
+            "origen": ORIGEN_TIPO.get(tipo, ""),
             "total": _num(total),
             "cantidad": cantidad,
         } for tipo, (total, cantidad) in por_tipo.items()], key=lambda x: -x["total"]),
         "serie": serie,
+        "movimientos": detalle,
         "por_evento": sorted([{
             "evento": ev["evento"],
             "nombre": ev["nombre"],
+            "origen": ev["origen"],
             "fecha": ev["fecha"].isoformat(),
             "ingresos": _num(ev[INGRESO]),
             "egresos": _num(ev[EGRESO]),

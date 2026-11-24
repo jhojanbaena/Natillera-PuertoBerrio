@@ -8,6 +8,7 @@ import { Modal } from "../components/Modal";
 import { InteresesMes } from "../components/InteresesMes";
 import { AbonosLineas } from "../components/AbonosLineas";
 import { MoneyInput } from "../components/MoneyInput";
+import { BuscadorSocio } from "../components/BuscadorSocio";
 import { formatMoney, formatDate, fechaLocalISO } from "../utils/formatters";
 
 const REGLA_MORA = "MORA_7_10";
@@ -690,18 +691,17 @@ export const Prestamos = () => {
         <form onSubmit={handleCreatePrestamo} className="space-y-4">
           <div>
             <label className={labelClass}>Socio *</label>
-            <select required value={prestamoForm.socio_id} onChange={(e) => setPrestamoForm({ ...prestamoForm, socio_id: e.target.value })}
-              className={inputClass}>
-              <option value="">Seleccionar socio...</option>
-              {socios.filter(s => s.is_active).map(s => {
+            <BuscadorSocio
+              required
+              socios={socios.filter((s) => s.is_active)}
+              value={prestamoForm.socio_id}
+              onChange={(socioId) => setPrestamoForm((f) => ({ ...f, socio_id: socioId }))}
+              nota={(s) => {
                 const previos = Number(conteoPrestamos[s.id] || 0);
-                return (
-                  <option key={s.id} value={s.id}>
-                    {s.nombre}{previos > 0 ? ` (${etiquetaOrden(previos + 1)})` : ""} (CC: {s.cedula})
-                  </option>
-                );
-              })}
-            </select>
+                return previos > 0 ? etiquetaOrden(previos + 1) : "";
+              }}
+              inputClassName={inputClass}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

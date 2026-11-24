@@ -1,7 +1,9 @@
 """Router para la Gestión Integral de Socios (/socios).
 Cumple con los criterios RF2-RF3 (CRUD completo, listado ordenado y perfil financiero detallado).
 """
+import html
 import json
+import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Annotated, List, Optional
@@ -21,7 +23,7 @@ from app.services.prestamos_service import (
     fecha_a_datetime, intereses_pendientes_vencidos, sincronizar_moras, validar_fecha_registro,
 )
 from app.schemas.socio import (
-    ActividadSocioCreate, ActividadSocioResponse, DeduccionesSocio, DeduccionMultaItem, DeduccionPrestamoItem, MovimientoPrestamoItem,
+    ActividadSocioCreate, ActividadSocioResponse, AuditoriaRegistro, DeduccionesSocio, DeduccionMultaItem, DeduccionPrestamoItem, MovimientoBitacoraItem, MovimientoPrestamoItem,
     SocioCreate, SocioUpdate, SocioResponse, SocioDetailResponse, TotalAhorradoSocio,
 )
 from app.schemas.finanzas import FinanzaMovimientoCreate, FinanzaResponse, MultaEstadoItem, MultaUpdate
@@ -243,6 +245,114 @@ def movimientos_prestamos_socio(db: Session, prestamos) -> List[MovimientoPresta
                 descripcion=h.descripcion,
             ))
     return items
+
+
+ETIQUETA_TIPO_FINANZA = {
+    "APORTE": "aporte", "MULTA": "multa", "PAGO_MULTA": "pago de multa", "RETIRO_AHORRO": "retiro de ahorro",
+}
+
+
+def movimientos_bitacora_socio(
+    db: Session, socio_id: int, finanzas_vigentes: set[int], actividades_vigentes: set[int] = frozenset(),
+) -> List[MovimientoBitacoraItem]:
+    """Operaciones hechas desde el ojito que no quedan como movimiento propio del socio.
+
+    Se leen de la bitácora (historial_movimientos), así cada operación aparece una
+    sola vez, con su fecha y hora, el usuario y los valores anteriores y nuevos:
+    - Actividades del socio: agregadas, modificadas y eliminadas.
+    - Multas modificadas (concepto o valor) antes de pagarse.
+    - Aportes, multas y pagos de multa que se revirtieron o eliminaron desde el
+      Historial global (ya no existen como movimiento, pero quedan trazados).
+    Los aportes, multas y pagos vigentes ya salen en historial_finanzas y los
+    abonos en movimientos_prestamos: aquí no se repiten.
+    """
+    ahora = datetime.now(timezone.utc)
+    filas = db.execute(
+        select(HistorialMovimiento)
+        .where(
+            HistorialMovimiento.entidad_tipo.in_(["ActividadSocio", "FinanzaSocio"]),
+            HistorialMovimiento.tipo_accion.in_(["CREAR", "EDITAR", "ELIMINAR", "REVERTIR"]),
+        )
+        .order_by(HistorialMovimiento.created_at.asc(), HistorialMovimiento.id.asc())
+    ).scalars().all()
+    items: List[MovimientoBitacoraItem] = []
+    for h in filas:
+        previos, nuevos = _json(h.datos_previos), _json(h.datos_nuevos)
+        datos = nuevos or previos
+        # Por socio_id de la instantánea, o por el registro vigente (si el socio cambió de ID).
+        vigentes = actividades_vigentes if h.entidad_tipo == "ActividadSocio" else finanzas_vigentes
+        if datos.get("socio_id") != socio_id and h.entidad_id not in vigentes:
+            continue
+        fecha = _como_fecha(h.created_at, ahora)
+        base = dict(
+            clave=f"bitacora-{h.id}", historial_id=h.id, fecha=fecha, accion=h.tipo_accion,
+            usuario_nombre=h.usuario_nombre, revertido=bool(h.revertido),
+        )
+        if h.entidad_tipo == "ActividadSocio":
+            cambios = []
+            if h.tipo_accion == "CREAR":
+                tipo, texto = "ACTIVIDAD_AGREGADA", f"Actividad agregada: {_texto_actividad(nuevos)}"
+                monto = _decimal(nuevos.get("ganancia"))
+            elif h.tipo_accion == "EDITAR":
+                cambios = cambios_registro(previos, nuevos, CAMPOS_ACTIVIDAD)
+                tipo = "ACTIVIDAD_MODIFICADA"
+                texto = f"Actividad modificada: {_texto_actividad(nuevos)}"
+                monto = _decimal(nuevos.get("ganancia"))
+            elif h.tipo_accion == "ELIMINAR":
+                tipo, texto = "ACTIVIDAD_ELIMINADA", f"Actividad eliminada: {_texto_actividad(previos)}"
+                monto = _decimal(previos.get("ganancia"))
+            else:
+                tipo, texto = "REVERSION", h.descripcion
+                monto = _decimal((previos or nuevos).get("ganancia"))
+            items.append(MovimientoBitacoraItem(**base, tipo=tipo, descripcion=texto, cambios=cambios, monto=monto))
+            continue
+
+        # FinanzaSocio: la creación vigente ya aparece en historial_finanzas.
+        etiqueta = ETIQUETA_TIPO_FINANZA.get(datos.get("tipo_movimiento"), "movimiento")
+        if h.tipo_accion == "CREAR":
+            if h.entidad_id in finanzas_vigentes:
+                continue
+            items.append(MovimientoBitacoraItem(
+                **base, tipo="MOVIMIENTO_REVERTIDO", monto=_decimal(nuevos.get("monto")),
+                descripcion=f"{etiqueta.capitalize()} registrado que ya no existe (revertido): {_sin_html(nuevos.get('descripcion')) or '-'}",
+            ))
+        elif h.tipo_accion == "EDITAR":
+            cambios = cambios_registro(previos, nuevos, CAMPOS_MULTA)
+            items.append(MovimientoBitacoraItem(
+                **base, tipo="MULTA_MODIFICADA" if datos.get("tipo_movimiento") == "MULTA" else "MOVIMIENTO_MODIFICADO",
+                monto=_decimal(nuevos.get("monto")), cambios=cambios,
+                descripcion=f"{etiqueta.capitalize()} #{h.entidad_id} modificada: {_sin_html(nuevos.get('descripcion')) or '-'}",
+            ))
+        elif h.tipo_accion == "ELIMINAR":
+            items.append(MovimientoBitacoraItem(
+                **base, tipo="MOVIMIENTO_ELIMINADO", monto=_decimal(previos.get("monto")),
+                descripcion=f"{etiqueta.capitalize()} eliminado: {_sin_html(previos.get('descripcion')) or '-'}",
+            ))
+        else:
+            items.append(MovimientoBitacoraItem(
+                **base, tipo="REVERSION", monto=_decimal((previos or nuevos).get("monto")), descripcion=h.descripcion,
+            ))
+    return items
+
+
+def auditoria_finanzas_socio(db: Session, ids: set[int]) -> dict[int, AuditoriaRegistro]:
+    """Fecha y hora en que se registró cada aporte/multa/pago y quién lo hizo."""
+    if not ids:
+        return {}
+    ahora = datetime.now(timezone.utc)
+    filas = db.execute(
+        select(HistorialMovimiento.entidad_id, HistorialMovimiento.created_at, HistorialMovimiento.usuario_nombre)
+        .where(
+            HistorialMovimiento.entidad_tipo == "FinanzaSocio",
+            HistorialMovimiento.tipo_accion == "CREAR",
+            HistorialMovimiento.entidad_id.in_(ids),
+        )
+        .order_by(HistorialMovimiento.id.asc())
+    ).all()
+    resultado: dict[int, AuditoriaRegistro] = {}
+    for entidad_id, creado, usuario in filas:
+        resultado.setdefault(entidad_id, AuditoriaRegistro(registrado_en=_como_fecha(creado, ahora), usuario_nombre=usuario))
+    return resultado
 
 
 @router.post("", response_model=SocioResponse, status_code=status.HTTP_201_CREATED, summary="Registrar un nuevo socio")
@@ -548,6 +658,10 @@ def get_socio_perfil(
     total_prestamos_activos = sum(1 for p in prestamos if p.estado not in ESTADOS_CERRADOS)
     saldo_prestamos_pendiente = sum(p.saldo_pendiente for p in prestamos if p.estado not in ESTADOS_CERRADOS)
     multas = estado_multas(historial_finanzas)
+    ids_finanzas = {f.id for f in historial_finanzas}
+    actividades = db.execute(
+        select(ActividadSocio).where(ActividadSocio.socio_id == socio_id).order_by(ActividadSocio.id.asc())
+    ).scalars().all()
 
     return SocioDetailResponse(
         id=socio.id,
@@ -569,9 +683,9 @@ def get_socio_perfil(
         deducciones=calcular_deducciones(prestamos, multas),
         total_ahorrado_socio=TotalAhorradoSocio(**calcular_total_ahorrado_socio(db, socio_id)),
         movimientos_prestamos=movimientos_prestamos_socio(db, prestamos),
-        actividades=db.execute(
-            select(ActividadSocio).where(ActividadSocio.socio_id == socio_id).order_by(ActividadSocio.id.asc())
-        ).scalars().all(),
+        movimientos_bitacora=movimientos_bitacora_socio(db, socio_id, ids_finanzas, {a.id for a in actividades}),
+        auditoria_finanzas=auditoria_finanzas_socio(db, ids_finanzas),
+        actividades=actividades,
     )
 
 
@@ -591,9 +705,89 @@ def _actividad_o_404(db: Session, socio_id: int, actividad_id: int) -> Actividad
     return actividad
 
 
-def _texto_actividad(a: ActividadSocio) -> str:
-    cantidad = f", {a.cantidad_vendida} vendidas" if a.cantidad_vendida is not None else ""
-    return f"'{a.nombre}'{cantidad}, ganancia {_pesos(a.ganancia)}"
+MESES_TEXTO = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]
+
+
+def _texto_actividad(a) -> str:
+    """Texto de una línea de actividad (objeto ORM o diccionario de la bitácora)."""
+    dato = (lambda k: a.get(k)) if isinstance(a, dict) else (lambda k: getattr(a, k, None))
+    tipo, mes = dato("tipo"), dato("mes")
+    if tipo == "RIFA_INTERNA":
+        nombre = "Rifa interna" + (f" de {MESES_TEXTO[int(mes) - 1]}" if mes else "")
+    else:
+        nombre = f"'{dato('nombre') or 'Actividad'}'"
+    cantidad = dato("cantidad_vendida")
+    valor_unidad = dato("valor_unidad")
+    partes = [nombre]
+    if cantidad is not None:
+        partes.append(f"{cantidad} vendidas")
+    if valor_unidad is not None:
+        partes.append(f"a {_pesos(valor_unidad)} c/u")
+    partes.append(f"ganancia {_pesos(dato('ganancia'))}")
+    return ", ".join(partes)
+
+
+# Campos de la actividad que se comparan al editar (para el historial del socio).
+CAMPOS_ACTIVIDAD = {
+    "tipo": "Tipo", "nombre": "Nombre", "mes": "Mes", "cantidad_vendida": "Cantidad vendida",
+    "valor_unidad": "Valor por unidad", "ganancia": "Ganancia",
+}
+CAMPOS_DINERO = {"valor_unidad", "ganancia", "monto"}
+
+
+CAMPOS_MULTA = {"descripcion": "Concepto", "monto": "Valor"}
+
+
+def _sin_html(texto) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(str(texto or "")))).strip()
+
+
+def _valor_legible(campo: str, valor) -> str:
+    if valor is None or valor == "":
+        return "—"
+    if campo == "descripcion":
+        return _sin_html(valor) or "—"
+    if campo in CAMPOS_DINERO:
+        return _pesos(valor)
+    if campo == "tipo":
+        return "Rifa interna" if valor == "RIFA_INTERNA" else "Otra"
+    if campo == "mes":
+        try:
+            return MESES_TEXTO[int(valor) - 1]
+        except (ValueError, IndexError, TypeError):
+            return str(valor)
+    return str(valor)
+
+
+def _iguales(campo: str, antes, despues) -> bool:
+    if campo in CAMPOS_DINERO or campo in {"mes", "cantidad_vendida"}:
+        if antes is None or despues is None:
+            return antes is None and despues is None
+        return _decimal(antes) == _decimal(despues)
+    return (antes or None) == (despues or None)
+
+
+def cambios_registro(previos: dict, nuevos: dict, campos: dict) -> list[dict]:
+    """Lista de cambios {campo, etiqueta, antes, despues} entre dos instantáneas."""
+    cambios = []
+    for campo, etiqueta in campos.items():
+        if campo not in previos and campo not in nuevos:
+            continue
+        antes, despues = previos.get(campo), nuevos.get(campo)
+        if _iguales(campo, antes, despues):
+            continue
+        cambios.append({
+            "campo": campo, "etiqueta": etiqueta,
+            "antes": _valor_legible(campo, antes), "despues": _valor_legible(campo, despues),
+        })
+    return cambios
+
+
+def _texto_cambios(cambios: list[dict]) -> str:
+    return "; ".join(f"{c['etiqueta']}: {c['antes']} → {c['despues']}" for c in cambios)
 
 
 @router.post("/{socio_id}/actividades", response_model=ActividadSocioResponse, status_code=status.HTTP_201_CREATED,
@@ -633,9 +827,14 @@ def editar_actividad_socio(
     for campo, valor in actividad_in.model_dump().items():
         setattr(actividad, campo, valor)
     db.flush()
+    cambios = cambios_registro(previos, model_to_dict(actividad), CAMPOS_ACTIVIDAD)
+    if not cambios:
+        # Sin cambios reales: no se genera un registro duplicado en el historial.
+        db.rollback()
+        return _actividad_o_404(db, socio_id, actividad_id)
     registrar_movimiento(
         db=db, modulo="Socios", tipo_accion="EDITAR",
-        descripcion=f"Actividad de {socio.nombre} actualizada: {_texto_actividad(actividad)}",
+        descripcion=f"Actividad de {socio.nombre} actualizada: {_texto_actividad(actividad)} ({_texto_cambios(cambios)})",
         entidad_tipo="ActividadSocio", entidad_id=actividad.id, datos_previos=previos, datos_nuevos=actividad,
         usuario=current_user,
     )
@@ -804,12 +1003,16 @@ def update_socio_multa(
         multa.descripcion = multa_in.descripcion.strip() or multa.descripcion
     db.flush()
     db.refresh(multa)
+    cambios = cambios_registro(datos_previos, model_to_dict(multa), CAMPOS_MULTA)
+    if not cambios:
+        db.rollback()
+        return db.get(FinanzaSocio, multa_id)
 
     registrar_movimiento(
         db=db,
         modulo="Finanzas",
         tipo_accion="EDITAR",
-        descripcion=f"Multa #{multa.id} modificada para socio {socio.nombre} (${multa.monto:,.2f})",
+        descripcion=f"Multa #{multa.id} modificada para socio {socio.nombre}: {_texto_cambios(cambios)}",
         entidad_tipo="FinanzaSocio",
         entidad_id=multa.id,
         datos_previos=datos_previos,

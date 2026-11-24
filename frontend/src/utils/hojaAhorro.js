@@ -56,10 +56,79 @@ const HOJA_ESTILOS = `
   .total-ahorrado small { display: block; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #e9d9b5; }
   .total-ahorrado strong { display: block; font-size: 24px; font-weight: 900; margin-top: 2px; }
   .vacio { color: #a39785; font-style: italic; text-align: center; padding: 10px; }
+  .a-recibir { border: 2px solid var(--cafe); border-radius: 12px; padding: 10px 14px; background: var(--crema); }
+  .a-recibir small { display: block; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--oro); font-weight: 800; }
+  .a-recibir strong { display: block; font-size: 22px; font-weight: 900; margin-top: 2px; }
+  .a-recibir .formula { font-size: 10px; color: var(--cafe-suave); margin-top: 4px; line-height: 1.45; }
+  .a-recibir .formula span { display: flex; justify-content: space-between; gap: 8px; }
+  .a-recibir .formula span b { font-variant-numeric: tabular-nums; }
+  .a-recibir .nota { font-size: 9px; font-style: italic; color: #8a7b66; margin-top: 4px; }
+
+  /* Zoom de la hoja (solo en pantalla): se amplía o reduce como una fotografía,
+     sin reacomodar el contenido; al imprimir o exportar se usa el tamaño original. */
+  body.con-zoom { padding: 64px 0 24px; background: #ece8df; }
+  body.con-zoom .hoja { width: 1120px; margin: 0 auto; padding: 18px 22px; background: #fff; box-shadow: 0 2px 14px rgba(59,26,20,.15); }
+  .zoom-barra { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 4px;
+    background: var(--cafe); color: var(--crema); padding: 5px 8px; border-radius: 999px; box-shadow: 0 4px 14px rgba(0,0,0,.25); font-size: 12px; }
+  .zoom-barra button { border: 0; background: rgba(247,244,236,.12); color: var(--crema); font: inherit; font-weight: 700; padding: 5px 11px; border-radius: 999px; cursor: pointer; }
+  .zoom-barra button:hover { background: rgba(247,244,236,.25); }
+  .zoom-barra .nivel { min-width: 52px; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .zoom-barra .sep-barra { width: 1px; height: 18px; background: rgba(247,244,236,.3); margin: 0 4px; }
+  @media print {
+    .zoom-barra { display: none !important; }
+    body.con-zoom { padding: 18px 22px; background: #fff; }
+    body.con-zoom .hoja { width: auto; margin: 0; padding: 0; box-shadow: none; zoom: 1 !important; }
+  }
   footer { margin-top: 12px; font-size: 9.5px; color: var(--cafe-suave); display: flex; justify-content: space-between; gap: 12px; }
 `;
 
-export const construirHoja = (h, logoUrl) => {
+// Barra de zoom de la ventana de impresión: botones, Ctrl + rueda y teclado.
+// Solo cambia la visualización (propiedad CSS zoom de la hoja); no toca los datos
+// y al imprimir la hoja vuelve a su tamaño original.
+const SCRIPT_ZOOM = `
+(function () {
+  var hoja = document.querySelector(".hoja");
+  var nivel = document.getElementById("zoom-nivel");
+  var ANCHO = 1120, MIN = 0.25, MAX = 3, z = 1;
+  function aplicar(valor) {
+    z = Math.min(MAX, Math.max(MIN, Math.round(valor * 100) / 100));
+    hoja.style.zoom = z;
+    nivel.textContent = Math.round(z * 100) + " %";
+  }
+  function ajustar() { aplicar(Math.min(1, (document.documentElement.clientWidth - 32) / ANCHO)); }
+  document.getElementById("zoom-menos").onclick = function () { aplicar(z - 0.1); };
+  document.getElementById("zoom-mas").onclick = function () { aplicar(z + 0.1); };
+  document.getElementById("zoom-real").onclick = function () { aplicar(1); };
+  document.getElementById("zoom-ajustar").onclick = ajustar;
+  document.getElementById("zoom-imprimir").onclick = function () { window.print(); };
+  window.addEventListener("wheel", function (e) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    aplicar(z * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+  }, { passive: false });
+  window.addEventListener("keydown", function (e) {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (e.key === "+" || e.key === "=") { e.preventDefault(); aplicar(z + 0.1); }
+    else if (e.key === "-") { e.preventDefault(); aplicar(z - 0.1); }
+    else if (e.key === "0") { e.preventDefault(); aplicar(1); }
+  });
+  ajustar();
+})();`;
+
+const BARRA_ZOOM = `<div class="zoom-barra" role="toolbar" aria-label="Zoom de la hoja">
+  <button type="button" id="zoom-menos" title="Alejar (Ctrl + rueda o Ctrl -)" aria-label="Alejar">−</button>
+  <span class="nivel" id="zoom-nivel" aria-live="polite">100 %</span>
+  <button type="button" id="zoom-mas" title="Acercar (Ctrl + rueda o Ctrl +)" aria-label="Acercar">+</button>
+  <span class="sep-barra"></span>
+  <button type="button" id="zoom-ajustar" title="Ver la hoja completa en la ventana">Ajustar</button>
+  <button type="button" id="zoom-real" title="Tamaño real (Ctrl 0)">100 %</button>
+  <span class="sep-barra"></span>
+  <button type="button" id="zoom-imprimir" title="Imprimir o guardar como PDF">Imprimir / PDF</button>
+</div>`;
+
+// opciones.zoom: agrega la barra de zoom (ventana de Imprimir / Exportar).
+export const construirHoja = (h, logoUrl, opciones = {}) => {
+  const conZoom = !!opciones.zoom;
   const meses = h.meses.map((m) => ({ etiqueta: MESES_HOJA[m.mes - 1], cuota: m.cuota, rifa: m.rifa_interna }));
   if (Number(h.otros_aportes)) {
     meses.push({ etiqueta: "Otros años", cuota: h.otros_aportes, rifa: 0 });
@@ -75,7 +144,8 @@ export const construirHoja = (h, logoUrl) => {
     const m = meses[i];
     const a = actividades[i];
     const d = deducciones[i];
-    const cantidad = a && a.cantidad_vendida != null ? ` <span class="cant">· ${escaparHtml(a.cantidad_vendida)} und.</span>` : "";
+    const porUnidad = a && a.valor_unidad != null ? ` × ${celdaDinero(a.valor_unidad, true)}` : "";
+    const cantidad = a && a.cantidad_vendida != null ? ` <span class="cant">· ${escaparHtml(a.cantidad_vendida)} und.${porUnidad}</span>` : "";
     cuerpo += `<tr>
       <td class="mes">${m ? escaparHtml(m.etiqueta) : ""}</td>
       <td class="num">${m ? celdaDinero(m.cuota) : ""}</td>
@@ -100,9 +170,12 @@ export const construirHoja = (h, logoUrl) => {
   ].map(([texto, valor]) => `<tr><td>${escaparHtml(texto)}</td><td class="num">${celdaDinero(valor, true)}</td></tr>`).join("");
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escaparHtml(h.socio.nombre)} - Total ahorrado ${escaparHtml(h.anio)}</title>
-<style>${HOJA_ESTILOS}</style></head><body>
+<style>${HOJA_ESTILOS}</style></head><body${conZoom ? ' class="con-zoom"' : ""}>
+${conZoom ? BARRA_ZOOM : ""}
 <img class="marca" src="${escaparHtml(logoUrl)}" alt="">
+<div class="hoja">
 <div class="contenido">
   <header>
     <img src="${escaparHtml(logoUrl)}" alt="Natillera Puerto Berrío">
@@ -137,6 +210,17 @@ export const construirHoja = (h, logoUrl) => {
         <table><tbody>${resumen}</tbody></table>
       </div>
       <div class="total-ahorrado"><small>Total ahorrado</small><strong>${celdaDinero(t.total, true)}</strong></div>
+      ${h.total_a_recibir != null ? `<div class="a-recibir">
+        <small>Total a recibir</small>
+        <strong>${escaparHtml(formatMoney(h.total_a_recibir).replace(/\s/g, " "))}</strong>
+        <div class="formula">
+          <span>Total ahorrado <b>${celdaDinero(t.total, true)}</b></span>
+          <span>− Total de deducciones <b>${celdaDinero(h.deducciones_a_descontar, true)}</b></span>
+        </div>
+        ${Number(h.total_deducciones) !== Number(h.deducciones_a_descontar)
+          ? `<div class="nota">No descuenta el capital de préstamos pendientes (${celdaDinero(Number(h.total_deducciones) - Number(h.deducciones_a_descontar), true)}).</div>`
+          : ""}
+      </div>` : ""}
     </div>
   </div>
 
@@ -145,5 +229,7 @@ export const construirHoja = (h, logoUrl) => {
     <span>Generado el ${escaparHtml(new Date().toLocaleString("es-CO"))}</span>
   </footer>
 </div>
+</div>
+${conZoom ? `<script>${SCRIPT_ZOOM}</script>` : ""}
 </body></html>`;
 };
